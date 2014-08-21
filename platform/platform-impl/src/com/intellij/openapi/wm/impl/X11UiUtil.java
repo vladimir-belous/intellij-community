@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,11 @@
 package com.intellij.openapi.wm.impl;
 
 import com.intellij.Patches;
+import com.intellij.execution.util.ExecUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.openapi.wm.WindowManager;
 import org.jetbrains.annotations.Nullable;
@@ -29,6 +31,8 @@ import java.awt.*;
 import java.awt.peer.ComponentPeer;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.intellij.util.ArrayUtil.newLongArray;
 import static com.intellij.util.containers.ContainerUtil.newHashSet;
@@ -248,45 +252,61 @@ public class X11UiUtil {
 
     try {
       if (wmName.startsWith("Mutter") || "Muffin".equals(wmName) || "GNOME Shell".equals(wmName)) {
-        try {
-          setWM("MUTTER_WM");
-        }
-        catch (NoSuchFieldException e) {
-          setWM("METACITY_WM");
-        }
+        setWM("MUTTER_WM", "METACITY_WM");
       }
       else if ("Marco".equals(wmName)) {
-        setWM("METACITY_WM");
+        setWM("MARCO_WM", "METACITY_WM");
       }
       else if ("awesome".equals(wmName)) {
-        try {
-          Class<?> xwmClass = Class.forName("sun.awt.X11.XWM");
-          xwmClass.getDeclaredField("OTHER_NONREPARENTING_WM");
-          if (System.getenv("_JAVA_AWT_WM_NONREPARENTING") == null) {
-            setWM("OTHER_NONREPARENTING_WM");  // patch present but not activated
-          }
+        String version = getAwesomeWMVersion();
+        if (StringUtil.compareVersionNumbers(version, "3.5") >= 0) {
+          setWM("SAWFISH_WM");
         }
-        catch (NoSuchFieldException e) {
-          setWM("LG3D_WM");  // patch absent - mimic LG3D
+        else if (version != null) {
+          setWM("OTHER_NONREPARENTING_WM", "LG3D_WM");
         }
       }
     }
-    catch (Throwable e) {
-      LOG.warn(e);
+    catch (Throwable t) {
+      LOG.warn(t);
     }
   }
 
-  private static void setWM(String wmConstant) throws Exception {
+  private static void setWM(String... wmConstants) throws Exception {
     Class<?> xwmClass = Class.forName("sun.awt.X11.XWM");
     Object xwm = method(xwmClass, "getWM").invoke(null);
     if (xwm != null) {
-      Field wm = field(xwmClass, wmConstant);
-      Object id = wm.get(null);
-      if (id != null) {
-        field(xwmClass, "awt_wmgr").set(null, id);
-        field(xwmClass, "WMID").set(xwm, id);
+      for (String wmConstant : wmConstants) {
+        try {
+          Field wm = field(xwmClass, wmConstant);
+          Object id = wm.get(null);
+          if (id != null) {
+            field(xwmClass, "awt_wmgr").set(null, id);
+            field(xwmClass, "WMID").set(xwm, id);
+            LOG.info("impersonated WM: " + wmConstant);
+            break;
+          }
+        }
+        catch (NoSuchFieldException ignore) { }
       }
     }
+  }
+
+  @Nullable
+  private static String getAwesomeWMVersion() {
+    try {
+      String version = ExecUtil.execAndReadLine("awesome", "--version");
+      if (version != null) {
+        Matcher m = Pattern.compile("awesome v([0-9.]+)").matcher(version);
+        if (m.find()) {
+          return m.group(1);
+        }
+      }
+    }
+    catch (Throwable t) {
+      LOG.warn(t);
+    }
+    return null;
   }
 
   // full-screen support

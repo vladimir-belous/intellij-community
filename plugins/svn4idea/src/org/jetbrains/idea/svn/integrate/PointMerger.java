@@ -18,16 +18,15 @@ package org.jetbrains.idea.svn.integrate;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.versionBrowser.CommittedChangeList;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.svn.SvnRevisionNumber;
 import org.jetbrains.idea.svn.SvnUtil;
 import org.jetbrains.idea.svn.SvnVcs;
+import org.jetbrains.idea.svn.api.Depth;
 import org.jetbrains.idea.svn.copy.CopyMoveClient;
 import org.jetbrains.idea.svn.delete.DeleteClient;
 import org.jetbrains.idea.svn.history.SvnRepositoryContentRevision;
 import org.jetbrains.idea.svn.update.UpdateEventHandler;
-import org.tmatesoft.svn.core.SVNDepth;
 import org.tmatesoft.svn.core.SVNException;
 import org.tmatesoft.svn.core.SVNURL;
 import org.tmatesoft.svn.core.internal.util.SVNPathUtil;
@@ -88,7 +87,7 @@ public class PointMerger extends Merger {
     SvnTarget source1 = SvnTarget.fromURL(SVNURL.parseURIEncoded(beforeUrl), ((SvnRevisionNumber)before.getRevisionNumber()).getRevision());
     SvnTarget source2 = SvnTarget.fromURL(SVNURL.parseURIEncoded(afterUrl), ((SvnRevisionNumber) after.getRevisionNumber()).getRevision());
 
-    client.merge(source1, source2, afterPath, SVNDepth.FILES, true, mySvnConfig.MERGE_DRY_RUN, false, false, mySvnConfig.getMergeOptions(),
+    client.merge(source1, source2, afterPath, Depth.FILES, true, mySvnConfig.isMergeDryRun(), false, false, mySvnConfig.getMergeOptions(),
                  myHandler);
   }
 
@@ -99,7 +98,7 @@ public class PointMerger extends Merger {
     final File beforePath = SvnUtil.fileFromUrl(myTarget, path, beforeUrl);
 
     DeleteClient client = myVcs.getFactory(myTarget).createDeleteClient();
-    client.delete(beforePath, false, mySvnConfig.MERGE_DRY_RUN, myHandler);
+    client.delete(beforePath, false, mySvnConfig.isMergeDryRun(), myHandler);
   }
 
   private void add(final Change change) throws SVNException, VcsException {

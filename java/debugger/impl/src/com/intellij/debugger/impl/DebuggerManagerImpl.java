@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,15 +23,13 @@ import com.intellij.debugger.ui.GetJPDADialog;
 import com.intellij.debugger.ui.breakpoints.BreakpointManager;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.ExecutionResult;
-import com.intellij.execution.Executor;
 import com.intellij.execution.configurations.JavaParameters;
-import com.intellij.execution.configurations.ModuleRunProfile;
 import com.intellij.execution.configurations.RemoteConnection;
 import com.intellij.execution.configurations.RunProfileState;
+import com.intellij.execution.process.KillableColoredProcessHandler;
 import com.intellij.execution.process.ProcessAdapter;
 import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.process.ProcessHandler;
-import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
@@ -81,6 +79,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
   private final MyDebuggerStateManager myDebuggerStateManager = new MyDebuggerStateManager();
 
   private final DebuggerContextListener mySessionListener = new DebuggerContextListener() {
+    @Override
     public void changeEvent(DebuggerContextImpl newContext, int event) {
 
       final DebuggerSession session = newContext.getDebuggerSession();
@@ -110,14 +109,17 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
   };
   @NonNls private static final String DEBUG_KEY_NAME = "idea.xdebug.key";
 
+  @Override
   public void addClassNameMapper(final NameMapper mapper) {
     myNameMappers.add(mapper);
   }
 
+  @Override
   public void removeClassNameMapper(final NameMapper mapper) {
     myNameMappers.remove(mapper);
   }
 
+  @Override
   public String getVMClassQualifiedName(@NotNull final PsiClass aClass) {
     for (NameMapper nameMapper : myNameMappers) {
       final String qName = nameMapper.getQualifiedName(aClass);
@@ -128,10 +130,12 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     return aClass.getQualifiedName();
   }
 
+  @Override
   public void addDebuggerManagerListener(DebuggerManagerListener listener) {
     myDispatcher.addListener(listener);
   }
 
+  @Override
   public void removeDebuggerManagerListener(DebuggerManagerListener listener) {
     myDispatcher.removeListener(listener);
   }
@@ -141,6 +145,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     myBreakpointManager = new BreakpointManager(myProject, startupManager, this);
     if (!project.isDefault()) {
       colorsManager.addEditorColorsListener(new EditorColorsListener() {
+        @Override
         public void globalSchemeChange(EditorColorsScheme scheme) {
           getBreakpointManager().updateBreakpointsUI();
         }
@@ -148,6 +153,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     }
   }
 
+  @Override
   public DebuggerSession getSession(DebugProcess process) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     for (final DebuggerSession debuggerSession : getSessions()) {
@@ -156,6 +162,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     return null;
   }
 
+  @Override
   public Collection<DebuggerSession> getSessions() {
     synchronized (mySessions) {
       final Collection<DebuggerSession> values = mySessions.values();
@@ -163,15 +170,19 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     }
   }
 
+  @Override
   public void disposeComponent() {
   }
 
+  @Override
   public void initComponent() {
   }
 
+  @Override
   public void projectClosed() {
   }
 
+  @Override
   public void projectOpened() {
     myBreakpointManager.init();
   }
@@ -193,26 +204,13 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     myBreakpointManager.writeExternal(element);
   }
 
-  public DebuggerSession attachVirtualMachine(Executor executor,
-                                              ProgramRunner runner,
-                                              ModuleRunProfile profile,
-                                              RunProfileState state,
-                                              RemoteConnection remoteConnection,
-                                              boolean pollConnection
-  ) throws ExecutionException {
-    return attachVirtualMachine(new DefaultDebugEnvironment(myProject,
-                                                            executor,
-                                                            runner,
-                                                            profile,
-                                                            state,
-                                                            remoteConnection,
-                                                            pollConnection));
-  }
-
-  public DebuggerSession attachVirtualMachine(DebugEnvironment environment) throws ExecutionException {
+  @Override
+  @Nullable
+  public DebuggerSession attachVirtualMachine(@NotNull DebugEnvironment environment) throws ExecutionException {
     ApplicationManager.getApplication().assertIsDispatchThread();
     final DebugProcessEvents debugProcess = new DebugProcessEvents(myProject);
     debugProcess.addDebugProcessListener(new DebugProcessAdapter() {
+      @Override
       public void processAttached(final DebugProcess process) {
         process.removeDebugProcessListener(this);
         for (Function<DebugProcess, PositionManager> factory : myCustomPositionManagerFactories) {
@@ -229,18 +227,19 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
         }
       }
 
+      @Override
       public void processDetached(final DebugProcess process, final boolean closedByUser) {
         debugProcess.removeDebugProcessListener(this);
       }
 
+      @Override
       public void attachException(final RunProfileState state,
                                   final ExecutionException exception,
                                   final RemoteConnection remoteConnection) {
         debugProcess.removeDebugProcessListener(this);
       }
     });
-    final DebuggerSession session = new DebuggerSession(environment.getSessionName(), debugProcess);
-
+    DebuggerSession session = new DebuggerSession(environment.getSessionName(), debugProcess);
     final ExecutionResult executionResult = session.attach(environment);
     if (executionResult == null) {
       return null;
@@ -263,11 +262,13 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
       // RemoteProcessHandler on the other hand will call debugProcess.stop() as a part of destroyProcess() and detachProcess() implementation,
       // so we shouldn't add the listener to avoid calling stop() twice
       processHandler.addProcessListener(new ProcessAdapter() {
+        @Override
         public void processWillTerminate(ProcessEvent event, boolean willBeDestroyed) {
           final DebugProcessImpl debugProcess = getDebugProcess(event.getProcessHandler());
           if (debugProcess != null) {
             // if current thread is a "debugger manager thread", stop will execute synchronously
-            debugProcess.stop(willBeDestroyed);
+            // it is KillableColoredProcessHandler responsibility to terminate VM
+            debugProcess.stop(willBeDestroyed && !(event.getProcessHandler() instanceof KillableColoredProcessHandler));
 
             // wait at most 10 seconds: the problem is that debugProcess.stop() can hang if there are troubles in the debuggee
             // if processWillTerminate() is called from AWT thread debugProcess.waitFor() will block it and the whole app will hang
@@ -282,7 +283,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     return session;
   }
 
-
+  @Override
   public DebugProcessImpl getDebugProcess(final ProcessHandler processHandler) {
     synchronized (mySessions) {
       DebuggerSession session = mySessions.get(processHandler);
@@ -298,6 +299,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     }
   }
 
+  @Override
   public void addDebugProcessListener(final ProcessHandler processHandler, final DebugProcessListener listener) {
     DebugProcessImpl debugProcess = getDebugProcess(processHandler);
     if (debugProcess != null) {
@@ -305,6 +307,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     }
     else {
       processHandler.addProcessListener(new ProcessAdapter() {
+        @Override
         public void startNotified(ProcessEvent event) {
           DebugProcessImpl debugProcess = getDebugProcess(processHandler);
           if (debugProcess != null) {
@@ -316,6 +319,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     }
   }
 
+  @Override
   public void removeDebugProcessListener(final ProcessHandler processHandler, final DebugProcessListener listener) {
     DebugProcessImpl debugProcess = getDebugProcess(processHandler);
     if (debugProcess != null) {
@@ -323,6 +327,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     }
     else {
       processHandler.addProcessListener(new ProcessAdapter() {
+        @Override
         public void startNotified(ProcessEvent event) {
           DebugProcessImpl debugProcess = getDebugProcess(processHandler);
           if (debugProcess != null) {
@@ -334,31 +339,38 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     }
   }
 
+  @Override
   public boolean isDebuggerManagerThread() {
     return DebuggerManagerThreadImpl.isManagerThread();
   }
 
+  @Override
   @NotNull
   public String getComponentName() {
     return "DebuggerManager";
   }
 
+  @Override
   public BreakpointManager getBreakpointManager() {
     return myBreakpointManager;
   }
 
+  @Override
   public DebuggerContextImpl getContext() {
     return getContextManager().getContext();
   }
 
+  @Override
   public DebuggerStateManager getContextManager() {
     return myDebuggerStateManager;
   }
 
+  @Override
   public void registerPositionManagerFactory(final Function<DebugProcess, PositionManager> factory) {
     myCustomPositionManagerFactories.add(factory);
   }
 
+  @Override
   public void unregisterPositionManagerFactory(final Function<DebugProcess, PositionManager> factory) {
     myCustomPositionManagerFactories.remove(factory);
   }
@@ -473,6 +485,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     final String _debuggeeRunProperties = debuggeeRunProperties;
 
     ApplicationManager.getApplication().runReadAction(new Runnable() {
+      @Override
       @SuppressWarnings({"HardCodedStringLiteral"})
       public void run() {
         JavaSdkUtil.addRtJar(parameters.getClassPath());
@@ -575,10 +588,12 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
   private static class MyDebuggerStateManager extends DebuggerStateManager {
     private DebuggerSession myDebuggerSession;
 
+    @Override
     public DebuggerContextImpl getContext() {
       return myDebuggerSession == null ? DebuggerContextImpl.EMPTY_CONTEXT : myDebuggerSession.getContextManager().getContext();
     }
 
+    @Override
     public void setState(final DebuggerContextImpl context, int state, int event, String description) {
       ApplicationManager.getApplication().assertIsDispatchThread();
       myDebuggerSession = context.getDebuggerSession();

@@ -15,22 +15,26 @@
  */
 package com.jetbrains.python.sdk.flavors;
 
+import com.google.common.collect.ImmutableMap;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.io.WindowsRegistryUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
+import com.jetbrains.python.PythonHelpersLocator;
 
 import java.io.File;
-import java.util.Collection;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 
 /**
  * @author yole
  */
 public class WinPythonSdkFlavor extends CPythonSdkFlavor {
   public static WinPythonSdkFlavor INSTANCE = new WinPythonSdkFlavor();
+  private static Map<String, String> ourRegistryMap =
+    ImmutableMap.of("HKEY_LOCAL_MACHINE\\SOFTWARE\\Python\\PythonCore", "python.exe",
+                    "HKEY_LOCAL_MACHINE\\SOFTWARE\\IronPython", "ipy.exe");
 
   private WinPythonSdkFlavor() {
   }
@@ -39,6 +43,7 @@ public class WinPythonSdkFlavor extends CPythonSdkFlavor {
   public Collection<String> suggestHomePaths() {
     Set<String> candidates = new TreeSet<String>();
     findInCandidatePaths(candidates, "python.exe", "jython.bat", "pypy.exe");
+    findInstallations(candidates, "python.exe", PythonHelpersLocator.getHelpersRoot().getParent());
     return candidates;
   }
 
@@ -46,6 +51,7 @@ public class WinPythonSdkFlavor extends CPythonSdkFlavor {
     for (String name : exe_names) {
       findInstallations(candidates, name, "C:\\", "C:\\Program Files\\");
       findInPath(candidates, name);
+      findInRegistry(candidates);
     }
   }
 
@@ -57,6 +63,7 @@ public class WinPythonSdkFlavor extends CPythonSdkFlavor {
 
   public static void findInPath(Collection<String> candidates, String exeName) {
     final String path = System.getenv("PATH");
+    if (path == null) return;
     for (String pathEntry : StringUtil.split(path, ";")) {
       if (pathEntry.startsWith("\"") && pathEntry.endsWith("\"")) {
         if (pathEntry.length() < 2) continue;
@@ -64,7 +71,26 @@ public class WinPythonSdkFlavor extends CPythonSdkFlavor {
       }
       File f = new File(pathEntry, exeName);
       if (f.exists()) {
-        candidates.add(FileUtil.toSystemIndependentName(f.getPath()));
+        candidates.add(FileUtil.toSystemDependentName(f.getPath()));
+      }
+    }
+  }
+
+  public static void findInRegistry(Collection<String> candidates) {
+    for (Map.Entry<String, String> entry : ourRegistryMap.entrySet()) {
+      final String prefix = entry.getKey();
+      final String exePath = entry.getValue();
+      List<String> strings = WindowsRegistryUtil.readRegistryBranch(prefix);
+      for (String string : strings) {
+        final String path =
+          WindowsRegistryUtil.readRegistryDefault(prefix + "\\" + string +
+                                                  "\\InstallPath");
+        if (path != null) {
+          File f = new File(path, exePath);
+          if (f.exists()) {
+            candidates.add(FileUtil.toSystemDependentName(f.getPath()));
+          }
+        }
       }
     }
   }
@@ -75,11 +101,11 @@ public class WinPythonSdkFlavor extends CPythonSdkFlavor {
       if (rootVDir instanceof NewVirtualFile) {
         ((NewVirtualFile)rootVDir).markDirty();
       }
-      rootVDir.refresh(false, false);
+      rootVDir.refresh(true, false);
       for (VirtualFile dir : rootVDir.getChildren()) {
         if (dir.isDirectory() && dir.getName().toLowerCase().startsWith(dir_prefix)) {
           VirtualFile python_exe = dir.findChild(exe_name);
-          if (python_exe != null) candidates.add(FileUtil.toSystemIndependentName(python_exe.getPath()));
+          if (python_exe != null) candidates.add(FileUtil.toSystemDependentName(python_exe.getPath()));
         }
       }
     }

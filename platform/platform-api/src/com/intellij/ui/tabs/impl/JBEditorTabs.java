@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.tabs.JBTabsPosition;
 import com.intellij.ui.tabs.TabInfo;
@@ -34,18 +35,21 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 /**
  * @author pegov
  */
 public class JBEditorTabs extends JBTabsImpl {
-  private static final String TABS_ALPHABETICAL_KEY = "tabs.alphabetical";
+  public static final String TABS_ALPHABETICAL_KEY = "tabs.alphabetical";
+  static final String TABS_SHORTEN_TITLE_IF_NEED = "tabs.shorten.title.if.need";
   private JBEditorTabsPainter myDarkPainter = new DarculaEditorTabsPainter();
   private JBEditorTabsPainter myDefaultPainter = new DefaultEditorTabsPainter();
 
 
-  public JBEditorTabs(@Nullable Project project, ActionManager actionManager, IdeFocusManager focusManager, @NotNull Disposable parent) {
+  public JBEditorTabs(@Nullable Project project, @NotNull ActionManager actionManager, IdeFocusManager focusManager, @NotNull Disposable parent) {
     super(project, actionManager, focusManager, parent);
   }
 
@@ -55,6 +59,13 @@ public class JBEditorTabs extends JBTabsImpl {
       return new ScrollableSingleRowLayout(this);
     }
     return super.createSingleRowLayout();
+  }
+
+  @Override
+  protected TabLabel createTabLabel(TabInfo info) {
+    TabLabel label = super.createTabLabel(info);
+    label.putClientProperty(TABS_SHORTEN_TITLE_IF_NEED, Boolean.TRUE);
+    return label;
   }
 
   @Override
@@ -127,7 +138,7 @@ public class JBEditorTabs extends JBTabsImpl {
     return UIUtil.isUnderDarcula() ? myDarkPainter : myDefaultPainter;
   }
 
-  public static boolean isAlphabeticalMode() {
+  public boolean isAlphabeticalMode() {
     return Registry.is(TABS_ALPHABETICAL_KEY);
   }
 
@@ -138,7 +149,14 @@ public class JBEditorTabs extends JBTabsImpl {
   @Override
   protected void doPaintBackground(Graphics2D g2d, Rectangle clip) {
     List<TabInfo> visibleInfos = getVisibleInfos();
-
+    if (isAlphabeticalMode()) {
+      Collections.sort(visibleInfos, new Comparator<TabInfo>() {
+        @Override
+        public int compare(TabInfo o1, TabInfo o2) {
+          return StringUtil.naturalCompare(o1.getText(), o2.getText());
+        }
+      });
+    }
     final boolean vertical = getTabsPosition() == JBTabsPosition.left || getTabsPosition() == JBTabsPosition.right;
 
     Insets insets = getTabsBorder().getEffectiveBorder();

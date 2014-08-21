@@ -15,6 +15,7 @@
  */
 package org.jetbrains.idea.maven.dom;
 
+import com.intellij.codeInsight.completion.CompletionType;
 import com.intellij.lang.properties.IProperty;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -22,9 +23,11 @@ import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiReference;
+import com.intellij.psi.xml.XmlTag;
 import org.jetbrains.idea.maven.dom.model.MavenDomProfiles;
 import org.jetbrains.idea.maven.dom.model.MavenDomProfilesModel;
 import org.jetbrains.idea.maven.dom.model.MavenDomSettingsModel;
+import org.jetbrains.idea.maven.model.MavenExplicitProfiles;
 import org.jetbrains.idea.maven.vfs.MavenPropertiesVirtualFileSystem;
 
 import java.util.Arrays;
@@ -577,6 +580,44 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
     assertResolved(myProjectPom, findTag(profiles, "settings.localRepository", MavenDomSettingsModel.class));
   }
 
+  public void testCompletionPropertyInsideSettingsXml() throws Exception {
+    VirtualFile profiles = updateSettingsXml("<profiles>" +
+                                                 "  <profile>" +
+                                                 "    <id>one</id>" +
+                                                 "    <properties>" +
+                                                 "      <foo>value</foo>" +
+                                                 "      <bar>value</bar>" +
+                                                 "      <xxx>${<caret>}</xxx>" +
+                                                 "    </properties>" +
+                                                 "  </profile>" +
+                                                 "</profiles>");
+
+    myFixture.configureFromExistingVirtualFile(profiles);
+    myFixture.complete(CompletionType.BASIC);
+    List<String> strings = myFixture.getLookupElementStrings();
+
+    assert strings != null;
+    assert strings.containsAll(Arrays.asList("foo", "bar"));
+    assert !strings.contains("xxx");
+  }
+
+  public void testResolvePropertyInsideSettingsXml() throws Exception {
+    VirtualFile profiles = updateSettingsXml("<profiles>" +
+                                                 "  <profile>" +
+                                                 "    <id>one</id>" +
+                                                 "    <properties>" +
+                                                 "      <foo>value</foo>" +
+                                                 "      <bar>${<caret>foo}</bar>" +
+                                                 "    </properties>" +
+                                                 "  </profile>" +
+                                                 "</profiles>");
+
+    myFixture.configureFromExistingVirtualFile(profiles);
+    PsiElement elementAtCaret = myFixture.getElementAtCaret();
+    assert elementAtCaret instanceof XmlTag;
+    assertEquals("foo", ((XmlTag)elementAtCaret).getName());
+  }
+
   public void testResolvingAbsentSettingsModelProperties() throws Exception {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
@@ -893,7 +934,7 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
     assertContain(variants, "project.groupId");
     assertDoNotContain(variants, "groupId");
   }
-  
+
   public void testCompletingAfterOpenBraceAndSomeTextWithDot() throws Exception {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
@@ -915,7 +956,7 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
   }
 
   private void readWithProfiles(String... profiles) {
-    myProjectsManager.setExplicitProfiles(Arrays.asList(profiles));
+    myProjectsManager.setExplicitProfiles(new MavenExplicitProfiles(Arrays.asList(profiles)));
     waitForReadingCompletion();
   }
 }

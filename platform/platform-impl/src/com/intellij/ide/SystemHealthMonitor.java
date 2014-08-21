@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.ui.HyperlinkAdapter;
 import com.intellij.ui.awt.RelativePoint;
+import com.intellij.util.SystemProperties;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.PropertyKey;
 
@@ -48,13 +49,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class SystemHealthMonitor extends ApplicationComponent.Adapter {
   private static final Logger LOG = Logger.getInstance("#com.intellij.ide.SystemHealthMonitor");
 
-  private static final NotNullLazyValue<NotificationGroup> LOG_GROUP = new AtomicNotNullLazyValue<NotificationGroup>() {
-    @NotNull
-    @Override
-    protected NotificationGroup compute() {
-      return NotificationGroup.logOnlyGroup("System Health Log Messages");
-    }
-  };
+  private static final NotificationGroup GROUP = new NotificationGroup("System Health", NotificationDisplayType.STICKY_BALLOON, false);
+  private static final NotificationGroup LOG_GROUP = NotificationGroup.logOnlyGroup("System Health (minor)");
 
   @NotNull private final PropertiesComponent myProperties;
 
@@ -79,6 +75,16 @@ public class SystemHealthMonitor extends ApplicationComponent.Adapter {
 
   private void notifyUnsupportedJvm(@PropertyKey(resourceBundle = "messages.IdeBundle") final String key) {
     final String ignoreKey = "ignore." + key;
+    final String message = IdeBundle.message(key) + IdeBundle.message("unsupported.jvm.link");
+    showNotification(ignoreKey, message, new HyperlinkAdapter() {
+      @Override
+      protected void hyperlinkActivated(HyperlinkEvent e) {
+        myProperties.setValue(ignoreKey, "true");
+      }
+    });
+  }
+
+  private void showNotification(final String ignoreKey, final String message, final HyperlinkAdapter hyperlinkAdapter) {
     if (myProperties.isValueSet(ignoreKey)) {
       return;
     }
@@ -89,18 +95,11 @@ public class SystemHealthMonitor extends ApplicationComponent.Adapter {
       public void appFrameCreated(String[] commandLineArgs, @NotNull Ref<Boolean> willOpenProject) {
         app.invokeLater(new Runnable() {
           public void run() {
-            String message = IdeBundle.message(key) + IdeBundle.message("unsupported.jvm.link");
-
             JComponent component = WindowManager.getInstance().findVisibleFrame().getRootPane();
             if (component != null) {
               Rectangle rect = component.getVisibleRect();
               JBPopupFactory.getInstance()
-                .createHtmlTextBalloonBuilder(message, MessageType.WARNING, new HyperlinkAdapter() {
-                  @Override
-                  protected void hyperlinkActivated(HyperlinkEvent e) {
-                    myProperties.setValue(ignoreKey, "true");
-                  }
-                })
+                .createHtmlTextBalloonBuilder(message, MessageType.WARNING, hyperlinkAdapter)
                 .setFadeoutTime(-1)
                 .setHideOnFrameResize(false)
                 .setHideOnLinkClick(true)
@@ -109,7 +108,7 @@ public class SystemHealthMonitor extends ApplicationComponent.Adapter {
                 .show(new RelativePoint(component, new Point(rect.x + 30, rect.y + rect.height - 10)), Balloon.Position.above);
             }
 
-            Notification notification = LOG_GROUP.getValue().createNotification(message, NotificationType.WARNING);
+            Notification notification = LOG_GROUP.createNotification(message, NotificationType.WARNING);
             notification.setImportant(true);
             Notifications.Bus.notify(notification);
           }
@@ -119,6 +118,10 @@ public class SystemHealthMonitor extends ApplicationComponent.Adapter {
   }
 
   private static void startDiskSpaceMonitoring() {
+    if (SystemProperties.getBooleanProperty("idea.no.system.path.space.monitoring", false)) {
+      return;
+    }
+
     final File file = new File(PathManager.getSystemPath());
     final AtomicBoolean reported = new AtomicBoolean();
     final ThreadLocal<Future<Long>> ourFreeSpaceCalculation = new ThreadLocal<Future<Long>>();
@@ -139,13 +142,13 @@ public class SystemHealthMonitor extends ApplicationComponent.Adapter {
               }
             }));
           }
-          if (!future.isDone()) {
+          if (!future.isDone() || future.isCancelled()) {
             JobScheduler.getScheduler().schedule(this, 1, TimeUnit.SECONDS);
             return;
           }
 
           try {
-            final long fileUsableSpace = future.isCancelled() ? 0 : future.get();
+            final long fileUsableSpace = future.get();
             final long timeout = Math.max(5, (fileUsableSpace - LOW_DISK_SPACE_THRESHOLD) / MAX_WRITE_SPEED_IN_BPS);
             ourFreeSpaceCalculation.set(null);
 
@@ -170,8 +173,7 @@ public class SystemHealthMonitor extends ApplicationComponent.Adapter {
                     restart(timeout);
                   }
                   else {
-                    new NotificationGroup("System", NotificationDisplayType.STICKY_BALLOON, false)
-                      .createNotification(message, file.getPath(), NotificationType.ERROR, null).whenExpired(new Runnable() {
+                    GROUP.createNotification(message, file.getPath(), NotificationType.ERROR, null).whenExpired(new Runnable() {
                       @Override
                       public void run() {
                         reported.compareAndSet(true, false);
@@ -206,4 +208,5 @@ public class SystemHealthMonitor extends ApplicationComponent.Adapter {
       }
     }, 1, TimeUnit.SECONDS);
   }
+
 }

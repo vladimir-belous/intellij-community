@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package com.intellij.testFramework;
 import com.intellij.ide.highlighter.ProjectFileType;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ex.PathManagerEx;
+import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -49,7 +50,13 @@ import java.io.File;
                                                                setupContentRoot();
                                                              }
                                                            });
+    ProjectViewTestUtil.setupImpl(getProject(), true);
+  }
 
+  @Override
+  protected void tearDown() throws Exception {
+    FileEditorManagerEx.getInstanceEx(getProject()).closeAllFiles();
+    super.tearDown();
   }
 
   protected String getTestDataPath() {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import com.intellij.ide.ui.LafManager;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.WindowManager;
@@ -46,6 +46,7 @@ import java.awt.image.ImageObserver;
 import java.awt.image.MemoryImageSource;
 import java.text.ParseException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -64,7 +65,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
   private final JTextField myBlue;
   private final JTextField myHex;
   private final Alarm myUpdateQueue;
-  private final ColorPickerListener[] myExternalListeners;
+  private final List<ColorPickerListener> myExternalListeners;
 
   private final boolean myOpacityInPercent;
 
@@ -88,13 +89,13 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
   };
 
   public ColorPicker(@NotNull Disposable parent, @Nullable Color color, boolean enableOpacity) {
-    this(parent, color, true, enableOpacity, new ColorPickerListener[0], false);
+    this(parent, color, true, enableOpacity, Collections.<ColorPickerListener>emptyList(), false);
   }
 
   private ColorPicker(Disposable parent,
                       @Nullable Color color,
                       boolean restoreColors, boolean enableOpacity,
-                      ColorPickerListener[] listeners, boolean opacityInPercent) {
+                      List<ColorPickerListener> listeners, boolean opacityInPercent) {
     myUpdateQueue = new Alarm(Alarm.ThreadToUse.SWING_THREAD, parent);
     myRed = createColorField(false);
     myGreen = createColorField(false);
@@ -332,7 +333,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
                                  String caption,
                                  Color preselectedColor,
                                  boolean enableOpacity,
-                                 ColorPickerListener[] listeners,
+                                 List<ColorPickerListener> listeners,
                                  boolean opacityInPercent) {
     final ColorPickerDialog dialog = new ColorPickerDialog(parent, caption, preselectedColor, enableOpacity, listeners, opacityInPercent);
     dialog.show();
@@ -789,7 +790,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
 
     @Nullable
     private Color getColor(MouseEvent event) {
-      Pair<Integer, Integer> pair = pointToCellCoords(event.getPoint());
+      Couple<Integer> pair = pointToCellCoords(event.getPoint());
       if (pair != null) {
         int ndx = pair.second + pair.first * 10;
         if (myRecentColors.size() > ndx) {
@@ -822,7 +823,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
     }
 
     @Nullable
-    private Pair<Integer, Integer> pointToCellCoords(Point p) {
+    private Couple<Integer> pointToCellCoords(Point p) {
       int x = p.x;
       int y = p.y;
 
@@ -837,7 +838,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
       int row = (y - top - 2) / 31;
       row = row > 1 ? 1 : row;
 
-      return row >= 0 && col >= 0 ? Pair.create(row, col) : null;
+      return row >= 0 && col >= 0 ? Couple.of(row, col) : null;
     }
 
     @Override
@@ -884,7 +885,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
   static class ColorPickerDialog extends DialogWrapper {
 
     private final Color myPreselectedColor;
-    private final ColorPickerListener[] myListeners;
+    private final List<ColorPickerListener> myListeners;
     private ColorPicker myColorPicker;
     private final boolean myEnableOpacity;
     private ColorPipette myPicker;
@@ -894,7 +895,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
                              String caption,
                              @Nullable Color preselectedColor,
                              boolean enableOpacity,
-                             ColorPickerListener[] listeners,
+                             List<ColorPickerListener> listeners,
                              boolean opacityInPercent) {
       super(parent, true);
       myListeners = listeners;
@@ -1037,7 +1038,6 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
     private Timer myTimer;
 
     private Point myPoint = new Point();
-    private Point myPickOffset;
     private Robot myRobot = null;
     private Color myPreviousColor;
     private Point myPreviousLocation;
@@ -1045,14 +1045,13 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
     private Graphics2D myGraphics;
     private BufferedImage myImage;
     private Point myHotspot;
-    private Point myCaptureOffset;
-    private BufferedImage myMagnifierImage;
+    private BufferedImage myPipetteImage;
     private Color myTransparentColor = new Color(0, true);
     private Rectangle myZoomRect;
-    private Rectangle myGlassRect;
     private ColorListener myColorListener;
     private BufferedImage myMaskImage;
     private Alarm myColorListenersNotifier = new Alarm(Alarm.ThreadToUse.SWING_THREAD);
+    private static final int SIZE = 32;
 
     private ColorPipette(JComponent parent, Color oldColor) {
       myParent = parent;
@@ -1128,53 +1127,34 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
           }
         });
 
-        myPickerFrame.setSize(50, 50);
+        myPickerFrame.setSize(SIZE - 4, SIZE - 4);
         myPickerFrame.setUndecorated(true);
-        myPickerFrame.setAlwaysOnTop(true);
+        myPickerFrame.setAlwaysOnTop(!SystemInfo.isJavaVersionAtLeast("1.8.0"));
 
         JRootPane rootPane = ((JDialog)myPickerFrame).getRootPane();
         rootPane.putClientProperty("Window.shadow", Boolean.FALSE);
 
-        myGlassRect = new Rectangle(0, 0, 32, 32);
-        myPickOffset = new Point(0, 0);
         myCaptureRect = new Rectangle(-4, -4, 8, 8);
-        myCaptureOffset = new Point(myCaptureRect.x, myCaptureRect.y);
-        myHotspot = new Point(14, 16);
+        myHotspot = new Point(SIZE / 2, SIZE / 2);
 
-        myZoomRect = new Rectangle(0, 0, 32, 32);
+        myZoomRect = new Rectangle(0, 0, SIZE, SIZE);
 
-        myMaskImage = UIUtil.createImage(32, 32, BufferedImage.TYPE_INT_ARGB);
+        myMaskImage = UIUtil.createImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
         Graphics2D maskG = myMaskImage.createGraphics();
         maskG.setColor(Color.BLUE);
-        maskG.fillRect(0, 0, 32, 32);
+        maskG.fillRect(0, 0, SIZE, SIZE);
 
         maskG.setColor(Color.RED);
         maskG.setComposite(AlphaComposite.SrcOut);
-        maskG.fillRect(0, 0, 32, 32);
+        maskG.fillRect(0, 0, SIZE, SIZE);
         maskG.dispose();
 
-        myMagnifierImage = UIUtil.createImage(32, 32, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D graphics = myMagnifierImage.createGraphics();
-
-        graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-
-        graphics.setColor(Color.BLACK);
-        //graphics.drawOval(1, 1, 30, 30);
-        //graphics.drawOval(2, 2, 28, 28);
-        //
-        //graphics.drawLine(2, 16, 12, 16);
-        //graphics.drawLine(20, 16, 30, 16);
-        //
-        //graphics.drawLine(16, 2, 16, 12);
-        //graphics.drawLine(16, 20, 16, 30);
-        AllIcons.Ide.Pipette.paintIcon(null, graphics, 14, 0);
-
+        myPipetteImage = UIUtil.createImage(AllIcons.Ide.Pipette.getIconWidth(), AllIcons.Ide.Pipette.getIconHeight(), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = myPipetteImage.createGraphics();
+        AllIcons.Ide.Pipette.paintIcon(null, graphics, 0, 0);
         graphics.dispose();
 
-        myImage = myParent.getGraphicsConfiguration().createCompatibleImage(myMagnifierImage.getWidth(), myMagnifierImage.getHeight(),
-                                                                            Transparency.TRANSLUCENT);
+        myImage = myParent.getGraphicsConfiguration().createCompatibleImage(SIZE, SIZE, Transparency.TRANSLUCENT);
 
         myGraphics = (Graphics2D)myImage.getGraphics();
         myGraphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
@@ -1214,7 +1194,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
     public void pickDone() {
       PointerInfo pointerInfo = MouseInfo.getPointerInfo();
       Point location = pointerInfo.getLocation();
-      Color pixelColor = myRobot.getPixelColor(location.x + myPickOffset.x, location.y + myPickOffset.y);
+      Color pixelColor = myRobot.getPixelColor(location.x, location.y);
       cancelPipette();
       if (myColorListener != null) {
         myColorListener.colorChanged(pixelColor, this);
@@ -1228,8 +1208,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
         Point mouseLoc = pointerInfo.getLocation();
         myPickerFrame.setLocation(mouseLoc.x - myPickerFrame.getWidth() / 2, mouseLoc.y - myPickerFrame.getHeight() / 2);
 
-        myPoint.x = mouseLoc.x + myPickOffset.x;
-        myPoint.y = mouseLoc.y + myPickOffset.y;
+        myPoint.setLocation(mouseLoc);
 
         final Color c = myRobot.getPixelColor(myPoint.x, myPoint.y);
         if (!c.equals(myPreviousColor) || !mouseLoc.equals(myPreviousLocation)) {
@@ -1253,11 +1232,9 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
 
           // paint magnifier
           myGraphics.setComposite(AlphaComposite.SrcOver);
-          myGraphics.drawImage(myMagnifierImage, 0, 0, this);
 
-          // We need to create a new subImage. This forces that
-          // the color picker uses the new imagery.
-          //BufferedImage subImage = myImage.getSubimage(0, 0, myImage.getWidth(), myImage.getHeight());
+          UIUtil.drawImage(myGraphics, myPipetteImage, SIZE - AllIcons.Ide.Pipette.getIconWidth(), 0, this);
+
           myPickerFrame.setCursor(myParent.getToolkit().createCustomCursor(myImage, myHotspot, "ColorPicker"));
           if (myColorListener != null) {
             myColorListenersNotifier.cancelAllRequests();

@@ -12,20 +12,24 @@
 // limitations under the License.
 package org.zmlx.hg4idea.action;
 
+import com.intellij.dvcs.push.ui.VcsPushDialog;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vfs.VirtualFile;
-import org.jetbrains.annotations.Nullable;
-import org.zmlx.hg4idea.HgPusher;
+import org.jetbrains.annotations.NotNull;
+import org.zmlx.hg4idea.repo.HgRepository;
 
-public class HgPushAction extends HgAction {
+import java.util.Collection;
+import java.util.List;
+
+public class HgPushAction extends HgAbstractGlobalAction {
   public HgPushAction() {
     super(AllIcons.Actions.Commit);
   }
 
   @Override
-  public void execute(final Project project, @Nullable final VirtualFile selectedRepo) {
-    new HgPusher(project).showDialogAndPush(selectedRepo);
+  public void execute(@NotNull final Project project,
+                      @NotNull Collection<HgRepository> repositories,
+                      @NotNull final List<HgRepository> selectedRepositories) {
+    new VcsPushDialog(project, selectedRepositories).show();
   }
-
 }

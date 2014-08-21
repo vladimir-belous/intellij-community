@@ -38,11 +38,9 @@ import com.intellij.reference.SoftReference;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewBundle;
+import com.intellij.usages.impl.rules.UsageType;
 import com.intellij.usages.rules.*;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.NotNullFunction;
-import com.intellij.util.Processor;
+import com.intellij.util.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -79,7 +77,8 @@ public class UsageInfo2UsageAdapter implements UsageInModule,
   private final int myLineNumber;
   private final int myOffset;
   protected Icon myIcon;
-  private Reference<TextChunk[]> myTextChunks; // allow to be gced and recreated on-demand because it requires a lot of memory
+  private volatile Reference<TextChunk[]> myTextChunks; // allow to be gced and recreated on-demand because it requires a lot of memory
+  private volatile UsageType myUsageType;
 
   public UsageInfo2UsageAdapter(@NotNull final UsageInfo usageInfo) {
     myUsageInfo = usageInfo;
@@ -168,7 +167,8 @@ public class UsageInfo2UsageAdapter implements UsageInModule,
 
   @Override
   public boolean isReadOnly() {
-    return isValid() && !getElement().isWritable();
+    PsiFile psiFile = getPsiFile();
+    return psiFile == null || psiFile.isValid() && !psiFile.isWritable();
   }
 
   @Override
@@ -335,7 +335,7 @@ public class UsageInfo2UsageAdapter implements UsageInModule,
     UsageInfo[] merged = ArrayUtil.mergeArrays(getMergedInfos(), u2.getMergedInfos());
     myMergedUsageInfos = merged.length == 1 ? merged[0] : merged;
     Arrays.sort(getMergedInfos(), BY_NAVIGATION_OFFSET);
-    initChunks();
+    myTextChunks = null; // chunks will be rebuilt lazily (IDEA-126048)
     return true;
   }
 
@@ -437,8 +437,7 @@ public class UsageInfo2UsageAdapter implements UsageInModule,
   @Override
   @NotNull
   public TextChunk[] getText() {
-    Reference<TextChunk[]> reference = myTextChunks;
-    TextChunk[] chunks = reference == null ? null : reference.get();
+    TextChunk[] chunks = SoftReference.dereference(myTextChunks);
     final long currentModificationStamp = getCurrentModificationStamp();
     boolean isModified = currentModificationStamp != myModificationStamp;
     if (chunks == null || isValid() && isModified) {
@@ -480,13 +479,57 @@ public class UsageInfo2UsageAdapter implements UsageInModule,
     Icon icon = myIcon;
     if (icon == null) {
       PsiElement psiElement = getElement();
-      myIcon = icon = psiElement != null && psiElement.isValid() ? psiElement.getIcon(0) : null;
+      myIcon = icon = psiElement != null && psiElement.isValid() && !isFindInPathUsage(psiElement) ? psiElement.getIcon(0) : null;
     }
     return icon;
+  }
+
+  private boolean isFindInPathUsage(PsiElement psiElement) {
+    return psiElement instanceof PsiFile && getUsageInfo().getPsiFileRange() != null;
   }
 
   @Override
   public String getTooltipText() {
     return myUsageInfo.getTooltipText();
+  }
+
+  public @Nullable UsageType getUsageType() {
+    UsageType usageType = myUsageType;
+
+    if (usageType == null) {
+      usageType = UsageType.UNCLASSIFIED;
+      PsiFile file = getPsiFile();
+
+      if (file != null) {
+        ChunkExtractor extractor = ChunkExtractor.getExtractor(file);
+        Segment segment = getFirstSegment();
+
+        if (segment != null) {
+          Document document = PsiDocumentManager.getInstance(getProject()).getDocument(file);
+
+          if (document != null) {
+            SmartList<TextChunk> chunks = new SmartList<TextChunk>();
+            extractor.createTextChunks(
+              this,
+              document.getCharsSequence(),
+              segment.getStartOffset(),
+              segment.getEndOffset(),
+              false,
+              chunks
+            );
+
+            for(TextChunk chunk:chunks) {
+              UsageType chunkUsageType = chunk.getType();
+              if (chunkUsageType != null) {
+                usageType = chunkUsageType;
+                break;
+              }
+            }
+          }
+        }
+      }
+      myUsageType = usageType;
+    }
+    return usageType;
   }
 }

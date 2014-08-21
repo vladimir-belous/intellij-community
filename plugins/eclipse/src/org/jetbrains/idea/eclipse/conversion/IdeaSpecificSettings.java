@@ -74,7 +74,7 @@ public class IdeaSpecificSettings extends AbstractIdeaSpecificSettings<Modifiabl
   }
 
   public static void readIDEASpecific(ModifiableRootModel model, CachedXmlDocumentSet documentSet, String eml) throws InvalidDataException, IOException, JDOMException {
-    new IdeaSpecificSettings().readIDEASpecific(documentSet.read(eml).getRootElement(), model, null, new HashMap<String, String>());
+    new IdeaSpecificSettings().readIDEASpecific(documentSet.read(eml, false).getRootElement(), model, null, new HashMap<String, String>());
   }
 
   @Override
@@ -451,7 +451,7 @@ public class IdeaSpecificSettings extends AbstractIdeaSpecificSettings<Modifiabl
       final Module module = ModuleUtilCore.findModuleForFile(file, project);
       if (module != null) {
         return appendRelatedToModule(element, classesUrl, rootName, file, module);
-      } else if (ProjectRootManager.getInstance(project).getFileIndex().isIgnored(file)) {
+      } else if (ProjectRootManager.getInstance(project).getFileIndex().isExcluded(file)) {
         for (Module aModule : ModuleManager.getInstance(project).getModules()) {
           if (appendRelatedToModule(element, classesUrl, rootName, file, aModule)) return true;
         }

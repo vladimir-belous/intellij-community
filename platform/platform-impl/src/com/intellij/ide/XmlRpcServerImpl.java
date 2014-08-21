@@ -58,12 +58,12 @@ public class XmlRpcServerImpl implements XmlRpcServer {
 
   static final class XmlRpcRequestHandler extends HttpRequestHandler {
     @Override
-    public boolean isSupported(FullHttpRequest request) {
-      return request.getMethod() == HttpMethod.POST || request.getMethod() == HttpMethod.OPTIONS;
+    public boolean isSupported(@NotNull FullHttpRequest request) {
+      return request.method() == HttpMethod.POST || request.method() == HttpMethod.OPTIONS;
     }
 
     @Override
-    public boolean process(QueryStringDecoder urlDecoder, FullHttpRequest request, ChannelHandlerContext context) throws IOException {
+    public boolean process(@NotNull QueryStringDecoder urlDecoder, @NotNull FullHttpRequest request, @NotNull ChannelHandlerContext context) throws IOException {
       return SERVICE.getInstance().process(urlDecoder.path(), request, context, null);
     }
   }
@@ -89,7 +89,7 @@ public class XmlRpcServerImpl implements XmlRpcServer {
       return false;
     }
 
-    if (request.getMethod() == HttpMethod.POST) {
+    if (request.method() == HttpMethod.POST) {
       ByteBuf result;
       ByteBufInputStream in = new ByteBufInputStream(request.content());
       try {
@@ -116,7 +116,7 @@ public class XmlRpcServerImpl implements XmlRpcServer {
       return true;
     }
     else if (HttpMethod.POST.name().equals(request.headers().get("Access-Control-Request-Method"))) {
-      LOG.assertTrue(request.getMethod() == HttpMethod.OPTIONS);
+      LOG.assertTrue(request.method() == HttpMethod.OPTIONS);
       Responses.sendOptionsResponse("POST, OPTIONS", request, context);
       return true;
     }

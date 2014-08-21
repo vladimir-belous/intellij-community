@@ -67,8 +67,7 @@ public class PyTestCommandLineState extends PythonTestCommandLineStateBase {
     assert script_params != null;
     String params = myConfiguration.getParams();
     if (!StringUtil.isEmptyOrSpaces(params)) {
-      for (String p : StringUtil.splitHonorQuotes(params, ' '))
-        script_params.addParameter(p);
+      script_params.addParametersString(params);
     }
 
     String keywords = myConfiguration.getKeywords();
@@ -82,7 +81,7 @@ public class PyTestCommandLineState extends PythonTestCommandLineStateBase {
   protected ConsoleView createAndAttachConsole(Project project, ProcessHandler processHandler, Executor executor)
     throws ExecutionException {
     final ConsoleView consoleView = super.createAndAttachConsole(project, processHandler, executor);
-    consoleView.addMessageFilter(new PyTestTracebackFilter(project, myConfiguration.getWorkingDirectory()));
+    addTracebackFilter(project, consoleView, processHandler);
     return consoleView;
   }
 }

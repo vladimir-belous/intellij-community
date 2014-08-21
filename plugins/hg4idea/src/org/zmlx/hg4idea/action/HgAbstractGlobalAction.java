@@ -16,7 +16,6 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
@@ -24,11 +23,15 @@ import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.zmlx.hg4idea.HgVcs;
+import org.zmlx.hg4idea.repo.HgRepository;
+import org.zmlx.hg4idea.repo.HgRepositoryManager;
 import org.zmlx.hg4idea.util.HgUtil;
 
 import javax.swing.*;
 import java.lang.reflect.InvocationTargetException;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
 abstract class HgAbstractGlobalAction extends AnAction {
@@ -47,11 +50,17 @@ abstract class HgAbstractGlobalAction extends AnAction {
     if (project == null) {
       return;
     }
-    VirtualFile file = event.getData(CommonDataKeys.VIRTUAL_FILE);
-    VirtualFile repo = file != null ? HgUtil.getHgRootOrNull(project, file) : null;
-    List<VirtualFile> repos = HgUtil.getHgRepositories(project);
-    if (!repos.isEmpty()) {
-      execute(project, repos, repo);
+    VirtualFile[] files = event.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY);
+    final HgRepositoryManager repositoryManager = HgUtil.getRepositoryManager(project);
+    List<HgRepository> repositories = repositoryManager.getRepositories();
+    if (!repositories.isEmpty()) {
+      List<HgRepository> selectedRepositories = (files == null || files.length == 0)
+                                                ?
+                                                Collections.singletonList(HgUtil.getCurrentRepository(project))
+                                                : HgActionUtil.collectRepositoriesFromFiles(repositoryManager,
+                                                                                            Arrays.asList(files));
+
+      execute(project, repositories, selectedRepositories);
     }
   }
 
@@ -63,8 +72,8 @@ abstract class HgAbstractGlobalAction extends AnAction {
   }
 
   protected abstract void execute(@NotNull Project project,
-                                  @NotNull Collection<VirtualFile> repositories,
-                                  @Nullable VirtualFile selectedRepo);
+                                  @NotNull Collection<HgRepository> repositories,
+                                  @NotNull List<HgRepository> selectedRepositories);
 
   public static void handleException(@Nullable Project project, @NotNull Exception e) {
     handleException(project, "Error", e);
@@ -75,7 +84,7 @@ abstract class HgAbstractGlobalAction extends AnAction {
     new HgCommandResultNotifier(project).notifyError(null, title, e.getMessage());
   }
 
-  protected void markDirtyAndHandleErrors(Project project, VirtualFile repository) {
+  static void markDirtyAndHandleErrors(Project project, VirtualFile repository) {
     try {
       HgUtil.markDirectoryDirty(project, repository);
     }
@@ -87,7 +96,7 @@ abstract class HgAbstractGlobalAction extends AnAction {
     }
   }
 
-  public static boolean isEnabled(AnActionEvent e) {
+  public boolean isEnabled(AnActionEvent e) {
     Project project = e.getData(CommonDataKeys.PROJECT);
     if (project == null) {
       return false;
@@ -99,4 +108,5 @@ abstract class HgAbstractGlobalAction extends AnAction {
     }
     return true;
   }
+
 }

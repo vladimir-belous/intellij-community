@@ -20,7 +20,7 @@ import com.intellij.execution.Location;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.notification.NotificationGroup;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.LangDataKeys;
+import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
@@ -36,6 +36,8 @@ import com.intellij.ui.SystemNotifications;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
+import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.util.List;
 
@@ -74,6 +76,17 @@ public class TestsUIUtil {
     return null;
   }
 
+  public static boolean isMultipleSelectionImpossible(DataContext dataContext) {
+    final Component component = PlatformDataKeys.CONTEXT_COMPONENT.getData(dataContext);
+    if (component instanceof JTree) {
+      final TreePath[] selectionPaths = ((JTree)component).getSelectionPaths();
+      if (selectionPaths == null || selectionPaths.length <= 1) {
+        return true;
+      }
+    }
+    return false;
+  }
+  
   public static Navigatable getOpenFileDescriptor(final AbstractTestProxy testProxy, final TestFrameworkRunningModel model) {
     final TestConsoleProperties testConsoleProperties = model.getProperties();
     return getOpenFileDescriptor(testProxy, testConsoleProperties,
@@ -220,7 +233,7 @@ public class TestsUIUtil {
         else if (notStartedCount > 0) {
           myTitle = !notStarted.isEmpty() ? ExecutionBundle.message("junit.runing.info.failed.to.start.error.message") : "Tests Ignored";
           myText = passedCount + " passed, " + notStartedCount + (!notStarted.isEmpty() ? " not started" : " ignored");
-          myType = MessageType.ERROR;
+          myType = notStarted.isEmpty() ? MessageType.WARNING : MessageType.ERROR;
         }
         else {
           myTitle = ExecutionBundle.message("junit.runing.info.tests.passed.label");

@@ -15,62 +15,53 @@
  */
 package org.jetbrains.idea.svn.dialogs;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.util.Consumer;
-import org.jetbrains.idea.svn.SvnConfiguration;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.idea.svn.SvnUtil;
 import org.jetbrains.idea.svn.SvnVcs;
+import org.jetbrains.idea.svn.api.Depth;
+import org.jetbrains.idea.svn.commandLine.SvnBindException;
+import org.jetbrains.idea.svn.diff.DiffOptions;
 import org.jetbrains.idea.svn.integrate.IMerger;
 import org.jetbrains.idea.svn.integrate.MergeClient;
 import org.jetbrains.idea.svn.update.UpdateEventHandler;
-import org.tmatesoft.svn.core.SVNDepth;
 import org.tmatesoft.svn.core.SVNException;
 import org.tmatesoft.svn.core.SVNURL;
-import org.tmatesoft.svn.core.io.SVNRepository;
-import org.tmatesoft.svn.core.wc.SVNDiffOptions;
 import org.tmatesoft.svn.core.wc.SVNRevision;
 import org.tmatesoft.svn.core.wc2.SvnTarget;
 
 import java.io.File;
 
 public class BranchMerger implements IMerger {
+
+  private static final Logger LOG = Logger.getInstance(BranchMerger.class);
+
   private final SvnVcs myVcs;
   private final String myTargetPath;
   private final SVNURL mySourceUrl;
-  private final SVNURL myTargetUrl;
   private final UpdateEventHandler myHandler;
   private final boolean myReintegrate;
   private final String myBranchName;
   private final long mySourceCopyRevision;
   private boolean myAtStart;
-  private long mySourceLatestRevision;
+  private SVNRevision mySourceLatestRevision;
 
   public BranchMerger(final SvnVcs vcs,
                       final SVNURL sourceUrl,
-                      final SVNURL targetUrl, final String targetPath,
+                      final String targetPath,
                       final UpdateEventHandler handler,
                       final boolean isReintegrate, final String branchName, final long sourceCopyRevision) {
     myVcs = vcs;
     myTargetPath = targetPath;
     mySourceUrl = sourceUrl;
-    myTargetUrl = targetUrl;
     myHandler = handler;
     myReintegrate = isReintegrate;
     myBranchName = branchName;
     mySourceCopyRevision = sourceCopyRevision;
     myAtStart = true;
-    // TODO: Rewrite this SVNKit usage
-    SVNRepository repository = null;
-    try {
-      repository = myVcs.createRepository(mySourceUrl);
-      mySourceLatestRevision = repository.getLatestRevision();
-    }
-    catch (SVNException e) {
-      mySourceLatestRevision = SVNRevision.HEAD.getNumber();
-    } finally {
-      if (repository != null) {
-        repository.closeSession();
-      }
-    }
+    mySourceLatestRevision = resolveSourceLatestRevision();
   }
 
   public String getComment() {
@@ -91,12 +82,13 @@ public class BranchMerger implements IMerger {
       client.merge(SvnTarget.fromURL(mySourceUrl), destination, false, createDiffOptions(), myHandler);
     } else {
       client.merge(SvnTarget.fromURL(mySourceUrl, SVNRevision.create(mySourceCopyRevision)),
-                   SvnTarget.fromURL(mySourceUrl, SVNRevision.create(mySourceLatestRevision)), destination, SVNDepth.INFINITY, true, false,
-                   false, true, createDiffOptions(), myHandler);
+                   SvnTarget.fromURL(mySourceUrl, mySourceLatestRevision), destination, Depth.INFINITY, true, false, false, true,
+                   createDiffOptions(), myHandler);
     }
   }
 
-  private SVNDiffOptions createDiffOptions() {
+  @NotNull
+  private DiffOptions createDiffOptions() {
     return myVcs.getSvnConfiguration().getMergeOptions();
   }
 
@@ -111,5 +103,19 @@ public class BranchMerger implements IMerger {
   }
 
   public void getSkipped(Consumer<String> holder) {
+  }
+
+  @NotNull
+  public SVNRevision resolveSourceLatestRevision() {
+    SVNRevision result = SVNRevision.HEAD;
+
+    try {
+      result = SvnUtil.getHeadRevision(myVcs, mySourceUrl);
+    }
+    catch (SvnBindException e) {
+      LOG.info(e);
+    }
+
+    return result;
   }
 }

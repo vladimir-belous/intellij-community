@@ -18,10 +18,12 @@ package com.intellij.ide.plugins;
 import com.google.common.hash.Hashing;
 import com.google.common.io.Files;
 import com.intellij.ide.IdeBundle;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
 import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.util.BuildNumber;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.PathUtil;
 import com.intellij.util.net.HttpConfigurable;
@@ -32,6 +34,7 @@ import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
 import java.io.*;
 import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.List;
 import java.util.zip.GZIPInputStream;
 
@@ -43,9 +46,14 @@ public class RepositoryHelper {
   @NonNls public static final String PLUGIN_LIST_FILE = "availables.xml";
 
   public static List<IdeaPluginDescriptor> loadPluginsFromRepository(@Nullable ProgressIndicator indicator) throws Exception {
+    return loadPluginsFromRepository(indicator, null);
+  }
+
+  public static List<IdeaPluginDescriptor> loadPluginsFromRepository(@Nullable ProgressIndicator indicator,
+                                                                     BuildNumber buildnumber) throws Exception {
     ApplicationInfoEx appInfo = ApplicationInfoImpl.getShadowInstance();
 
-    String url = appInfo.getPluginsListUrl() + "?build=" + appInfo.getApiVersion();
+    String url = appInfo.getPluginsListUrl() + "?build=" + (buildnumber != null ? buildnumber.asString() : appInfo.getApiVersion());
 
     if (indicator != null) {
       indicator.setText2(IdeBundle.message("progress.connecting.to.plugin.manager", appInfo.getPluginManagerUrl()));
@@ -62,8 +70,12 @@ public class RepositoryHelper {
       }
     }
 
-    HttpURLConnection connection = HttpConfigurable.getInstance().openHttpConnection(url);
+    HttpURLConnection connection = ApplicationManager.getApplication() != null ?
+                                   HttpConfigurable.getInstance().openHttpConnection(url) :
+                                   (HttpURLConnection)new URL(url).openConnection();
     connection.setRequestProperty("Accept-Encoding", "gzip");
+    connection.setReadTimeout(HttpConfigurable.CONNECTION_TIMEOUT);
+    connection.setConnectTimeout(HttpConfigurable.CONNECTION_TIMEOUT);
 
     if (indicator != null) {
       indicator.setText2(IdeBundle.message("progress.waiting.for.reply.from.plugin.manager", appInfo.getPluginManagerUrl()));

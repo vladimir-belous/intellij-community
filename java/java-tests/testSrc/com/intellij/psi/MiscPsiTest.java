@@ -25,10 +25,11 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.impl.source.tree.LazyParseableElement;
 import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import org.jetbrains.annotations.NotNull;
 
 public class MiscPsiTest extends LightCodeInsightFixtureTestCase {
   @Override
-  protected void invokeTestRunnable(final Runnable runnable) throws Exception {
+  protected void invokeTestRunnable(@NotNull final Runnable runnable) throws Exception {
     new WriteCommandAction.Simple(getProject()) {
       @Override
       protected void run() throws Throwable {
@@ -259,4 +260,20 @@ public class MiscPsiTest extends LightCodeInsightFixtureTestCase {
     assertEquals("some.unknown.Foo<? extends String>", type.getCanonicalText());
   }
 
+  public void testNoPsiModificationsInUncommittedDocument() {
+    final PsiJavaFile file = (PsiJavaFile)myFixture.addFileToProject("a.java", "class A{}");
+    Document document = file.getViewProvider().getDocument();
+    document.insertString(0, " ");
+
+    PsiClass psiClass = file.getClasses()[0];
+    try {
+      psiClass.addBefore(PsiParserFacade.SERVICE.getInstance(getProject()).createWhiteSpaceFromText(" "), psiClass.getLBrace());
+      fail();
+    }
+    catch (IllegalStateException e) {
+      assertEquals("Attempt to modify PSI for non-committed Document!", e.getMessage());
+    }
+    assertEquals("class A{}", psiClass.getText());
+    assertEquals(" class A{}", document.getText());
+  }
 }

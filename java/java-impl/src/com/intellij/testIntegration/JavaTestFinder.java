@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,8 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
+import com.intellij.util.CommonProcessors;
+import com.intellij.util.Processor;
 import com.intellij.util.containers.HashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -45,14 +47,7 @@ public class JavaTestFinder implements TestFinder {
     PsiClass klass = findSourceElement(element);
     if (klass == null) return Collections.emptySet();
 
-    GlobalSearchScope scope;
-    Module module = getModule(element);
-    if (module != null) {
-      scope = GlobalSearchScope.moduleWithDependenciesScope(module);
-    }
-    else {
-      scope = GlobalSearchScope.projectScope(element.getProject());
-    }
+    GlobalSearchScope scope = getSearchScope(element);
 
     PsiShortNamesCache cache = PsiShortNamesCache.getInstance(element.getProject());
 
@@ -60,12 +55,22 @@ public class JavaTestFinder implements TestFinder {
     for (Pair<String, Integer> eachNameWithWeight : TestFinderHelper.collectPossibleClassNamesWithWeights(klass.getName())) {
       for (PsiClass eachClass : cache.getClassesByName(eachNameWithWeight.first, scope)) {
         if (isTestSubjectClass(eachClass)) {
-          classesWithWeights.add(new Pair<PsiClass, Integer>(eachClass, eachNameWithWeight.second));
+          classesWithWeights.add(Pair.create(eachClass, eachNameWithWeight.second));
         }
       }
     }
 
     return TestFinderHelper.getSortedElements(classesWithWeights, false);
+  }
+
+  protected GlobalSearchScope getSearchScope(PsiElement element) {
+    final Module module = getModule(element);
+    if (module != null) {
+      return GlobalSearchScope.moduleWithDependenciesScope(module);
+    }
+    else {
+      return GlobalSearchScope.projectScope(element.getProject());
+    }
   }
 
   private static boolean isTestSubjectClass(PsiClass klass) {
@@ -80,36 +85,37 @@ public class JavaTestFinder implements TestFinder {
     PsiClass klass = findSourceElement(element);
     if (klass == null) return Collections.emptySet();
 
-    GlobalSearchScope scope;
-    Module module = getModule(element);
-    if (module != null) {
-      scope = GlobalSearchScope.moduleWithDependentsScope(module);
-    }
-    else {
-      scope = GlobalSearchScope.projectScope(element.getProject());
-    }
+    List<Pair<? extends PsiNamedElement, Integer>> classesWithProximities = new ArrayList<Pair<? extends PsiNamedElement, Integer>>();
+    final CommonProcessors.CollectProcessor<Pair<? extends PsiNamedElement, Integer>> processor =
+      new CommonProcessors.CollectProcessor<Pair<? extends PsiNamedElement, Integer>>(classesWithProximities);
+    collectTests(klass, processor);
 
-    PsiShortNamesCache cache = PsiShortNamesCache.getInstance(element.getProject());
+    return TestFinderHelper.getSortedElements(classesWithProximities, true);
+  }
+
+  private boolean collectTests(PsiClass klass, Processor<Pair<? extends PsiNamedElement, Integer>> processor) {
+    GlobalSearchScope scope = getSearchScope(klass);
+
+    PsiShortNamesCache cache = PsiShortNamesCache.getInstance(klass.getProject());
 
     String klassName = klass.getName();
     Pattern pattern = Pattern.compile(".*" + klassName + ".*");
 
-    List<Pair<? extends PsiNamedElement, Integer>> classesWithProximities = new ArrayList<Pair<? extends PsiNamedElement, Integer>>();
-
     HashSet<String> names = new HashSet<String>();
     cache.getAllClassNames(names);
+    final TestFrameworks frameworks = TestFrameworks.getInstance();
     for (String eachName : names) {
       if (pattern.matcher(eachName).matches()) {
         for (PsiClass eachClass : cache.getClassesByName(eachName, scope)) {
-          if (TestFrameworks.getInstance().isTestClass(eachClass)) {
-            classesWithProximities.add(
-                new Pair<PsiClass, Integer>(eachClass, TestFinderHelper.calcTestNameProximity(klassName, eachName)));
+          if (frameworks.isTestClass(eachClass) || frameworks.isPotentialTestClass(eachClass)) {
+            if (!processor.process(Pair.create(eachClass, TestFinderHelper.calcTestNameProximity(klassName, eachName)))) {
+              return true;
+            }
           }
         }
       }
     }
-
-    return TestFinderHelper.getSortedElements(classesWithProximities, true);
+    return false;
   }
 
   @Nullable

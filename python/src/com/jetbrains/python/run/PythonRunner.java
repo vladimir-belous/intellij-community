@@ -44,10 +44,10 @@ public class PythonRunner extends DefaultProgramRunner {
 
   @Override
   protected RunContentDescriptor doExecute(
-    Project project,
-    RunProfileState state,
+    @NotNull Project project,
+    @NotNull RunProfileState state,
     RunContentDescriptor contentToReuse,
-    ExecutionEnvironment env
+    @NotNull ExecutionEnvironment env
   ) throws ExecutionException {
     FileDocumentManager.getInstance().saveAllDocuments();
 
@@ -59,9 +59,6 @@ public class PythonRunner extends DefaultProgramRunner {
     else {
       executionResult = state.execute(env.getExecutor(), this);
     }
-    if (executionResult == null) return null;
-
-    final RunContentBuilder contentBuilder = new RunContentBuilder(this, executionResult, env);
-    return contentBuilder.showRunContent(contentToReuse);
+    return executionResult == null ? null : new RunContentBuilder(executionResult, env).showRunContent(contentToReuse);
   }
 }

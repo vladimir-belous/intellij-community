@@ -48,7 +48,6 @@ import com.intellij.refactoring.BaseRefactoringProcessor;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.introduceParameter.Util;
 import com.intellij.refactoring.listeners.RefactoringEventData;
-import com.intellij.refactoring.listeners.RefactoringEventListener;
 import com.intellij.refactoring.rename.NonCodeUsageInfoFactory;
 import com.intellij.refactoring.rename.RenameJavaVariableProcessor;
 import com.intellij.refactoring.util.*;
@@ -233,7 +232,7 @@ public class InlineMethodProcessor extends BaseRefactoringProcessor {
       GenericInlineHandler.collectConflicts(ref, myMethod, myInliners, conflicts);
     }
 
-    final PsiReturnStatement[] returnStatements = RefactoringUtil.findReturnStatements(myMethod);
+    final PsiReturnStatement[] returnStatements = PsiUtil.findReturnStatements(myMethod);
     for (PsiReturnStatement statement : returnStatements) {
       PsiExpression value = statement.getReturnValue();
       if (value != null && !(value instanceof PsiCallExpression)) {
@@ -357,6 +356,8 @@ public class InlineMethodProcessor extends BaseRefactoringProcessor {
         result.put(memberContainer, inaccessibleReferenced);
         for (PsiMember member : referencedElements) {
           if (PsiTreeUtil.isAncestor(elementToInline, member, false)) continue;
+          if (elementToInline instanceof PsiClass && 
+              InheritanceUtil.isInheritorOrSelf((PsiClass)elementToInline, member.getContainingClass(), true)) continue;
           if (!PsiUtil.isAccessible(usage.getProject(), member, usageElement, null)) {
             inaccessibleReferenced.add(member);
           }
@@ -790,7 +791,7 @@ public class InlineMethodProcessor extends BaseRefactoringProcessor {
       String[] names = myJavaCodeStyle.suggestVariableName(VariableKind.LOCAL_VARIABLE, null, null, thisType)
         .names;
       String thisVarName = names[0];
-      thisVarName = myJavaCodeStyle.suggestUniqueVariableName(thisVarName, block.getFirstChild(), true);
+      thisVarName = myJavaCodeStyle.suggestUniqueVariableName(thisVarName, myMethod.getFirstChild(), true);
       PsiExpression initializer = myFactory.createExpressionFromText("null", null);
       PsiDeclarationStatement declaration = myFactory.createVariableDeclarationStatement(thisVarName, thisType, initializer);
       declaration = (PsiDeclarationStatement)block.addAfter(declaration, null);
@@ -818,7 +819,7 @@ public class InlineMethodProcessor extends BaseRefactoringProcessor {
     }
 
     if (resultName != null || tailCallType == InlineUtil.TailCallType.Simple) {
-      PsiReturnStatement[] returnStatements = RefactoringUtil.findReturnStatements(myMethodCopy);
+      PsiReturnStatement[] returnStatements = PsiUtil.findReturnStatements(myMethodCopy);
       for (PsiReturnStatement returnStatement : returnStatements) {
         final PsiExpression returnValue = returnStatement.getReturnValue();
         if (returnValue == null) continue;
@@ -1263,7 +1264,7 @@ public class InlineMethodProcessor extends BaseRefactoringProcessor {
       if (parentStatement != null) {
         PsiElement parent = ref.getParent();
         while (!parent.equals(parentStatement)) {
-          if (parent instanceof PsiStatement && !(parent instanceof PsiDeclarationStatement)) {
+          if (parent instanceof PsiExpressionStatement) {
             String text = "{\n}";
             PsiBlockStatement blockStatement = (PsiBlockStatement)myFactory.createStatementFromText(text, null);
             blockStatement = (PsiBlockStatement)myCodeStyleManager.reformat(blockStatement);
@@ -1463,7 +1464,7 @@ public class InlineMethodProcessor extends BaseRefactoringProcessor {
   }
 
   public static boolean checkBadReturns(PsiMethod method) {
-    PsiReturnStatement[] returns = RefactoringUtil.findReturnStatements(method);
+    PsiReturnStatement[] returns = PsiUtil.findReturnStatements(method);
     if (returns.length == 0) return false;
     PsiCodeBlock body = method.getBody();
     ControlFlow controlFlow;

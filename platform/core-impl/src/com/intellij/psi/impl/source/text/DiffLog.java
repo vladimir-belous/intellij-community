@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,8 +39,7 @@ import java.util.List;
  * User: cdr
  */
 public class DiffLog implements DiffTreeChangeBuilder<ASTNode,ASTNode> {
-  public DiffLog() {
-  }
+  public DiffLog() { }
 
   private abstract static class LogEntry {
     protected LogEntry() {
@@ -51,13 +50,13 @@ public class DiffLog implements DiffTreeChangeBuilder<ASTNode,ASTNode> {
 
   private final List<LogEntry> myEntries = new ArrayList<LogEntry>();
 
-  public TreeChangeEventImpl performActualPsiChange(PsiFile file) {
+  @NotNull
+  public TreeChangeEventImpl performActualPsiChange(@NotNull PsiFile file) {
     final ASTDiffBuilder astDiffBuilder = new ASTDiffBuilder((PsiFileImpl) file);
     for (LogEntry entry : myEntries) {
       entry.doActualPsiChange(file, astDiffBuilder);
     }
     file.subtreeChanged();
-
     return astDiffBuilder.getEvent();
   }
 
@@ -82,7 +81,6 @@ public class DiffLog implements DiffTreeChangeBuilder<ASTNode,ASTNode> {
   @Override
   public void nodeDeleted(@NotNull ASTNode oldParent, @NotNull ASTNode oldNode) {
     myEntries.add(new DeleteEntry(oldParent, oldNode));
-
   }
 
   @Override
@@ -125,14 +123,12 @@ public class DiffLog implements DiffTreeChangeBuilder<ASTNode,ASTNode> {
 
       astDiffBuilder.nodeReplaced(oldNode, newNode);
 
-      /////////////////
       ((TreeElement)newNode).clearCaches();
       if (!(newNode instanceof FileElement)) {
         ((CompositeElement)newNode.getTreeParent()).subtreeChanged();
       }
 
       DebugUtil.checkTreeStructure(parent);
-
     }
   }
 
@@ -167,7 +163,6 @@ public class DiffLog implements DiffTreeChangeBuilder<ASTNode,ASTNode> {
       ((CompositeElement)parent).subtreeChanged();
 
       DebugUtil.checkTreeStructure(parent);
-
     }
   }
 
@@ -221,7 +216,6 @@ public class DiffLog implements DiffTreeChangeBuilder<ASTNode,ASTNode> {
 
       DebugUtil.checkTreeStructure(myOldParent);
     }
-
   }
 
   private static PsiElement getPsi(ASTNode node, PsiFile file) {

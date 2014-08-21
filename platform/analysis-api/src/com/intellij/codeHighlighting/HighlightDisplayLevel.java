@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -56,7 +56,7 @@ public class HighlightDisplayLevel {
     for (Map.Entry<HighlightSeverity, HighlightDisplayLevel> entry : ourMap.entrySet()) {
       HighlightSeverity severity = entry.getKey();
       HighlightDisplayLevel displayLevel = entry.getValue();
-      if (Comparing.strEqual(severity.toString(), name)) {
+      if (Comparing.strEqual(severity.getName(), name)) {
         return displayLevel;
       }
     }
@@ -82,6 +82,11 @@ public class HighlightDisplayLevel {
     return mySeverity.toString();
   }
 
+  @NotNull
+  public String getName() {
+    return mySeverity.getName();
+  }
+
   public Icon getIcon() {
     return myIcon;
   }
@@ -102,8 +107,8 @@ public class HighlightDisplayLevel {
     }
   }
 
-  private static class ImageHolder {
-    private static final Image ourErrorMaskImage = ImageLoader.loadFromResource("/general/errorMask.png");
+  public static class ImageHolder {
+    public static final Image ourErrorMaskImage = ImageLoader.loadFromResource("/general/errorMask.png");
   }
 
   private static final int EMPTY_ICON_DIM = 12;
@@ -133,24 +138,35 @@ public class HighlightDisplayLevel {
 
   @NotNull
   public static Icon createIconByMask(final Color renderColor) {
-    return new Icon() {
-      @Override
-      public void paintIcon(Component c, Graphics g, int x, int y) {
-        Graphics2D g2 = (Graphics2D)g;
-        g2.drawImage(ImageHolder.ourErrorMaskImage, x, y, renderColor, null);
-      }
+    return new SingleColorIconWithMask(renderColor);
+  }
 
+  public static class SingleColorIconWithMask implements Icon {
 
-      @Override
-      public int getIconWidth() {
-        return EMPTY_ICON_DIM;
-      }
+    private final Color myColor;
 
+    public SingleColorIconWithMask(final Color color) {
+      myColor = color;
+    }
 
-      @Override
-      public int getIconHeight() {
-        return EMPTY_ICON_DIM;
-      }
-    };
+    public Color getColor() {
+      return myColor;
+    }
+
+    @Override
+    public void paintIcon(final Component c, final Graphics g, final int x, final int y) {
+      final Graphics2D g2 = (Graphics2D)g;
+      g2.drawImage(ImageHolder.ourErrorMaskImage, x, y, myColor, null);
+    }
+
+    @Override
+    public int getIconWidth() {
+      return EMPTY_ICON_DIM;
+    }
+
+    @Override
+    public int getIconHeight() {
+      return EMPTY_ICON_DIM;
+    }
   }
 }

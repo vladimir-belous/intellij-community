@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,7 @@
 package com.intellij.ide.browsers;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.Url;
 import com.intellij.util.containers.ContainerUtil;
@@ -39,16 +37,11 @@ public abstract class WebBrowserUrlProvider {
     }
   }
 
-  public boolean canHandleElement(@NotNull PsiElement element, @NotNull PsiFile psiFile, @NotNull Ref<Collection<Url>> result) {
-    VirtualFile file = psiFile.getVirtualFile();
-    if (file == null) {
-      return false;
-    }
-
+  public boolean canHandleElement(@NotNull OpenInBrowserRequest request) {
     try {
-      Collection<Url> urls = getUrls(element, psiFile, file);
+      Collection<Url> urls = getUrls(request);
       if (!urls.isEmpty()) {
-        result.set(urls);
+        request.setResult(urls);
         return true;
       }
     }
@@ -59,17 +52,13 @@ public abstract class WebBrowserUrlProvider {
   }
 
   @Nullable
-  protected Url getUrl(@NotNull PsiElement element, @NotNull PsiFile psiFile, @NotNull VirtualFile virtualFile) throws BrowserException {
+  protected Url getUrl(@NotNull OpenInBrowserRequest request, @NotNull VirtualFile virtualFile) throws BrowserException {
     return null;
   }
 
-  public Collection<Url> getUrls(@NotNull PsiElement element, @NotNull PsiFile psiFile, @NotNull VirtualFile virtualFile) throws BrowserException {
-    return ContainerUtil.createMaybeSingletonSet(getUrl(element, psiFile, virtualFile));
-  }
-
-  @Nullable
-  public String getOpenInBrowserActionText(@NotNull PsiFile file) {
-    return null;
+  @NotNull
+  public Collection<Url> getUrls(@NotNull OpenInBrowserRequest request) throws BrowserException {
+    return ContainerUtil.createMaybeSingletonList(getUrl(request, request.getVirtualFile()));
   }
 
   @Nullable

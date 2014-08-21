@@ -93,7 +93,7 @@ public class RootModelImpl extends RootModelBase implements ModifiableRootModel 
   RootModelImpl(@NotNull Element element,
                 @NotNull ModuleRootManagerImpl moduleRootManager,
                 ProjectRootManagerImpl projectRootManager,
-                VirtualFilePointerManager filePointerManager) throws InvalidDataException {
+                VirtualFilePointerManager filePointerManager, boolean writable) throws InvalidDataException {
     myProjectRootManager = projectRootManager;
     myFilePointerManager = filePointerManager;
     myModuleRootManager = moduleRootManager;
@@ -123,8 +123,7 @@ public class RootModelImpl extends RootModelBase implements ModifiableRootModel 
       myOrderEntries.add(new ModuleSourceOrderEntryImpl(this));
     }
 
-
-    myWritable = true;
+    myWritable = writable;
 
     RootModelImpl originalRootModel = moduleRootManager.getRootModel();
     for (ModuleExtension extension : originalRootModel.myExtensions) {
@@ -214,6 +213,8 @@ public class RootModelImpl extends RootModelBase implements ModifiableRootModel 
     LOG.assertTrue(myContent.contains(entry));
     if (entry instanceof RootModelComponentBase) {
       Disposer.dispose((RootModelComponentBase)entry);
+      RootModelImpl entryModel = ((RootModelComponentBase)entry).getRootModel();
+      LOG.assertTrue(entryModel == this, "Removing from " + this + " content entry obtained from " + entryModel);
     }
     myContent.remove(entry);
   }
@@ -351,17 +352,17 @@ public class RootModelImpl extends RootModelBase implements ModifiableRootModel 
       getSourceModel().setOrderEntriesFrom(this);
     }
 
+    for (ModuleExtension extension : myExtensions) {
+      if (extension.isChanged()) {
+        extension.commit();
+      }
+    }
+
     if (areContentEntriesChanged()) {
       getSourceModel().removeAllContentEntries();
       for (ContentEntry contentEntry : myContent) {
         ContentEntry cloned = ((ClonableContentEntry)contentEntry).cloneEntry(getSourceModel());
         getSourceModel().myContent.add(cloned);
-      }
-    }
-
-    for (ModuleExtension extension : myExtensions) {
-      if (extension.isChanged()) {
-        extension.commit();
       }
     }
   }
@@ -730,6 +731,15 @@ public class RootModelImpl extends RootModelBase implements ModifiableRootModel 
   private RootModelImpl getSourceModel() {
     assertWritable();
     return myModuleRootManager.getRootModel();
+  }
+
+  @Override
+  public String toString() {
+    return "RootModelImpl{" +
+           "module=" + getModule().getName() +
+           ", writable=" + myWritable +
+           ", disposed=" + myDisposed +
+           '}';
   }
 
   @Nullable

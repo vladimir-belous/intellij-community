@@ -3,6 +3,9 @@
     <extensionPoint name="remoteServer.type" interface="com.intellij.remoteServer.ServerType"/>
     <extensionPoint name="remoteServer.deploymentSource.type" interface="com.intellij.remoteServer.configuration.deployment.DeploymentSourceType"/>
     <extensionPoint name="remoteServer.viewContributor" interface="com.intellij.remoteServer.impl.runtime.ui.RemoteServersViewContributor"/>
+
+    <extensionPoint name="remoteServer.util.CloudDeploymentRuntimeProvider"
+                    interface="com.intellij.remoteServer.util.CloudDeploymentRuntimeProvider"/>
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
@@ -14,7 +17,7 @@
                         serviceImplementation="com.intellij.remoteServer.agent.impl.RemoteAgentManagerImpl"/>
     <applicationService serviceInterface="com.intellij.remoteServer.runtime.clientLibrary.ClientLibraryManager"
                         serviceImplementation="com.intellij.remoteServer.impl.runtime.clientLibrary.ClientLibraryManagerImpl"/>
-    <applicationConfigurable instance="com.intellij.remoteServer.impl.configuration.RemoteServerListConfigurable"/>
+    <applicationConfigurable groupId="build" displayName="Clouds" instance="com.intellij.remoteServer.impl.configuration.RemoteServerListConfigurable"/>
     <programRunner implementation="com.intellij.remoteServer.impl.runtime.DeployToServerRunner"/>
     <projectService serviceInterface="com.intellij.remoteServer.runtime.ui.RemoteServersView"
                     serviceImplementation="com.intellij.remoteServer.impl.runtime.ui.RemoteServersViewImpl"/>

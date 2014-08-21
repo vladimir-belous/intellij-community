@@ -338,7 +338,7 @@ public class PathManagerEx {
   }
 
   private static boolean isJUnitClass(Class<?> clazz) {
-    return TestCase.class.isAssignableFrom(clazz) || TestRunnerUtil.isJUnit4TestClass(clazz);
+    return TestCase.class.isAssignableFrom(clazz) || TestRunnerUtil.isJUnit4TestClass(clazz) || com.intellij.testFramework.Parameterized.class.isAssignableFrom(clazz);
   }
 
   @Nullable
@@ -358,6 +358,13 @@ public class PathManagerEx {
     return result;
   }
 
+  public static void replaceLookupStrategy(Class<?> substitutor, Class<?>... initial) {
+    CLASS_STRATEGY_CACHE.clear();
+    for (Class<?> aClass : initial) {
+      CLASS_STRATEGY_CACHE.put(aClass, determineLookupStrategy(substitutor));
+    }
+  }
+  
   private static FileSystemLocation computeClassLocation(Class<?> clazz) {
     String classRootPath = PathManager.getJarPathForClass(clazz);
     if (classRootPath == null) {
@@ -417,7 +424,7 @@ public class PathManagerEx {
    * @return    project type implied by its file system location
    */
   private static FileSystemLocation parseProjectLocation() {
-    return new File(PathManager.getHomePath(), "community").isDirectory() ? FileSystemLocation.ULTIMATE : FileSystemLocation.COMMUNITY;
+    return new File(PathManager.getHomePath(), "community/.idea").isDirectory() ? FileSystemLocation.ULTIMATE : FileSystemLocation.COMMUNITY;
   }
 
   /**

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,11 +43,13 @@ import com.intellij.openapi.wm.ex.LayoutFocusTraversalPolicyExt;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
 import com.intellij.openapi.wm.impl.IdeFrameImpl;
 import com.intellij.openapi.wm.impl.IdeGlassPaneImpl;
+import com.intellij.reference.SoftReference;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBLayeredPane;
 import com.intellij.ui.mac.foundation.Foundation;
 import com.intellij.ui.mac.foundation.ID;
 import com.intellij.ui.mac.foundation.MacUtil;
+import com.intellij.util.ReflectionUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -58,7 +60,6 @@ import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferStrategy;
 import java.lang.ref.WeakReference;
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -77,7 +78,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer implements FocusTra
   private final ActionCallback myTypeAheadDone = new ActionCallback("DialogTypeAheadDone");
   private ActionCallback myTypeAheadCallback;
 
-  protected DialogWrapperPeerImpl(@NotNull DialogWrapper wrapper, @Nullable Project project, boolean canBeParent, DialogWrapper.IdeModalityType ideModalityType) {
+  protected DialogWrapperPeerImpl(@NotNull DialogWrapper wrapper, @Nullable Project project, boolean canBeParent, @NotNull DialogWrapper.IdeModalityType ideModalityType) {
     myWrapper = wrapper;
     myTypeAheadCallback = myWrapper.isTypeAheadEnabled() ? new ActionCallback() : null;
     myWindowManager = null;
@@ -236,7 +237,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer implements FocusTra
     myDialog.addKeyListener(listener);
   }
 
-  private void createDialog(@Nullable Window owner, boolean canBeParent, DialogWrapper.IdeModalityType ideModalityType) {
+  private void createDialog(@Nullable Window owner, boolean canBeParent, @NotNull DialogWrapper.IdeModalityType ideModalityType) {
     if (isHeadless()) {
       myDialog = new HeadlessDialog();
       return;
@@ -406,13 +407,14 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer implements FocusTra
     myDialog.setResizable(resizable);
   }
 
+  @NotNull
   @Override
   public Point getLocation() {
     return myDialog.getLocation();
   }
 
   @Override
-  public void setLocation(Point p) {
+  public void setLocation(@NotNull Point p) {
     myDialog.setLocation(p);
   }
 
@@ -762,14 +764,9 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer implements FocusTra
           queue.getKeyEventDispatcher().resetState();
         }
 
-       // if (myProject != null) {
-       //   Project project = myProject.get();
-          //if (project != null && !project.isDisposed() && project.isInitialized()) {
-          // // IdeFocusManager.findInstanceByComponent(this).requestFocus(new MyFocusCommand(dialogWrapper), true);
-          //}
-       // }
       }
 
+      // Workaround for switching workspaces on dialog show
       if (SystemInfo.isMac && myProject != null && Registry.is("ide.mac.fix.dialog.showing") && !dialogWrapper.isModalProgress()) {
         final IdeFrame frame = WindowManager.getInstance().getIdeFrame(myProject.get());
         AppIcon.getInstance().requestFocus(frame);
@@ -788,7 +785,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer implements FocusTra
 
     @Nullable
     private Project getProject() {
-      return myProject != null ? myProject.get() : null;
+      return SoftReference.dereference(myProject);
     }
 
     @Override
@@ -875,18 +872,12 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer implements FocusTra
 
       if (rootPane != null) { // Workaround for bug in native code to hold rootPane
         try {
-          Field field = rootPane.getClass().getDeclaredField("glassPane");
-          field.setAccessible(true);
-          field.set(rootPane, null);
+          ReflectionUtil.resetField(rootPane.getClass(), null, "glassPane");
+          ReflectionUtil.resetField(rootPane.getClass(), null, "contentPane");
 
-          field = rootPane.getClass().getDeclaredField("contentPane");
-          field.setAccessible(true);
-          field.set(rootPane, null);
           rootPane = null;
 
-          field = Window.class.getDeclaredField("windowListener");
-          field.setAccessible(true);
-          field.set(this, null);
+          ReflectionUtil.resetField(Window.class, null, "windowListener");
         }
         catch (Exception ignored) {
         }
@@ -894,9 +885,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer implements FocusTra
 
       // http://bugs.sun.com/view_bug.do?bug_id=6614056
       try {
-        final Field field = Dialog.class.getDeclaredField("modalDialogs");
-        field.setAccessible(true);
-        final List<?> list = (List<?>)field.get(null);
+        final List<?> list = ReflectionUtil.getField(Dialog.class, null, null, "modalDialogs");
         list.remove(this);
       }
       catch (final Exception ignored) {

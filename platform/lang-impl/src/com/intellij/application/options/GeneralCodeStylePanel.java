@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,6 +42,7 @@ import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider;
 import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.JBLabel;
+import com.intellij.ui.components.JBScrollPane;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -80,6 +81,7 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
   private JBLabel myFormatterOnLabel;
   private JPanel myMarkerOptionsPanel;
   private final SmartIndentOptionsEditor myIndentOptionsEditor;
+  private final JBScrollPane myScrollPane;
 
 
   public GeneralCodeStylePanel(CodeStyleSettings settings) {
@@ -109,7 +111,7 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
     myLineSeparatorCombo.addItem(MACINTOSH_STRING);
     addPanelToWatch(myPanel);
 
-    myRightMarginSpinner.setModel(new SpinnerNumberModel(settings.RIGHT_MARGIN, 1, 1000000, 1));
+    myRightMarginSpinner.setModel(new SpinnerNumberModel(settings.getDefaultRightMargin(), 1, 1000000, 1));
 
     myIndentOptionsEditor = new SmartIndentOptionsEditor();
     myDefaultIndentOptionsPanel.add(myIndentOptionsEditor.createPanel(), BorderLayout.CENTER);
@@ -126,13 +128,15 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
       ApplicationBundle.message("settings.code.style.general.formatter.marker.title"), true));
     myMarkerOptionsPanel.setBorder(
       IdeBorderFactory.createTitledBorder(ApplicationBundle.message("settings.code.style.general.formatter.marker.options.title"), true));
+    myScrollPane = new JBScrollPane(myPanel,
+                                    ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+    myScrollPane.setBorder(IdeBorderFactory.createEmptyBorder());
   }
 
   @Nullable
   private static Language getLanguage(FileType fileType) {
-    return (fileType instanceof LanguageFileType) ? ((LanguageFileType)fileType).getLanguage() : null;
+    return fileType instanceof LanguageFileType ? ((LanguageFileType)fileType).getLanguage() : null;
   }
-
 
   @Override
   protected void somethingChanged() {
@@ -161,7 +165,7 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
   public void apply(CodeStyleSettings settings) {
     settings.LINE_SEPARATOR = getSelectedLineSeparator();
 
-    settings.RIGHT_MARGIN = ((Number) myRightMarginSpinner.getValue()).intValue();
+    settings.setDefaultRightMargin(((Number) myRightMarginSpinner.getValue()).intValue());
     settings.WRAP_WHEN_TYPING_REACHES_RIGHT_MARGIN = myCbWrapWhenTypingReachesRightMargin.isSelected();
     myIndentOptionsEditor.setEnabled(true);
     myIndentOptionsEditor.apply(settings, settings.OTHER_INDENT_OPTIONS);
@@ -222,7 +226,7 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
       return true;
     }
 
-    if (!Comparing.equal(myRightMarginSpinner.getValue(), settings.RIGHT_MARGIN)) return true;
+    if (!Comparing.equal(myRightMarginSpinner.getValue(), settings.getDefaultRightMargin())) return true;
     myIndentOptionsEditor.setEnabled(true);
 
     if (myEnableFormatterTags.isSelected()) {
@@ -241,7 +245,7 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
 
   @Override
   public JComponent getPanel() {
-    return myPanel;
+    return myScrollPane;
   }
 
   @Override
@@ -261,7 +265,7 @@ public class GeneralCodeStylePanel extends CodeStyleAbstractPanel {
       myLineSeparatorCombo.setSelectedItem(SYSTEM_DEPENDANT_STRING);
     }
 
-    myRightMarginSpinner.setValue(settings.RIGHT_MARGIN);
+    myRightMarginSpinner.setValue(settings.getDefaultRightMargin());
     myCbWrapWhenTypingReachesRightMargin.setSelected(settings.WRAP_WHEN_TYPING_REACHES_RIGHT_MARGIN);
     myIndentOptionsEditor.reset(settings, settings.OTHER_INDENT_OPTIONS);
     myIndentOptionsEditor.setEnabled(true);

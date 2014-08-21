@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -115,7 +115,7 @@ public class DelayedDocumentWatcher {
     public void documentChanged(DocumentEvent event) {
       if (myDocumentSavingInProgress) {
         /** When {@link FileDocumentManager#saveAllDocuments} is called,
-         *  {@link com.intellij.openapi.fileEditor.impl.TrailingSpacesStripper} can change a document.
+         *  {@link com.intellij.openapi.editor.impl.TrailingSpacesStripper} can change a document.
          *  These needless 'documentChanged' events should be filtered out.
          */
         return;
@@ -193,6 +193,9 @@ public class DelayedDocumentWatcher {
 
   // This method is called in a background thread with a read lock acquired
   private boolean hasErrors(@NotNull VirtualFile file) {
+    if (!file.isValid()) {
+      return false;
+    }
     // don't use 'WolfTheProblemSolver.hasSyntaxErrors(file)' if possible
     Document document = FileDocumentManager.getInstance().getDocument(file);
     if (document != null) {

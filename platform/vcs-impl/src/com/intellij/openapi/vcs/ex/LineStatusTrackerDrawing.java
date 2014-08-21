@@ -18,6 +18,7 @@ package com.intellij.openapi.vcs.ex;
 import com.intellij.codeInsight.hint.EditorFragmentComponent;
 import com.intellij.codeInsight.hint.HintManagerImpl;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.diff.DiffColors;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -159,14 +160,16 @@ public class LineStatusTrackerDrawing {
     localShowPrevAction.copyFrom(globalShowPrevAction);
 
     final RollbackLineStatusRangeAction rollback = new RollbackLineStatusRangeAction(tracker, range, editor);
-    EmptyAction.setupAction(rollback, IdeActions.CHANGES_VIEW_ROLLBACK, editorComponent);
+    final ShowLineStatusRangeDiffAction showDiff = new ShowLineStatusRangeDiffAction(tracker, range, editor);
+    final CopyLineStatusRangeAction copyRange = new CopyLineStatusRangeAction(tracker, range);
+
     group.add(rollback);
+    group.add(showDiff);
+    group.add(copyRange);
 
-    group.add(new ShowLineStatusRangeDiffAction(tracker, range, editor));
-    group.add(new CopyLineStatusRangeAction(tracker, range));
-
-    @SuppressWarnings("unchecked")
-    final List<AnAction> actionList = (List<AnAction>)editorComponent.getClientProperty(AnAction.ourClientProperty);
+    EmptyAction.setupAction(rollback, IdeActions.SELECTED_CHANGES_ROLLBACK, editorComponent);
+    EmptyAction.setupAction(showDiff, "ChangesView.Diff", editorComponent);
+    EmptyAction.setupAction(copyRange, IdeActions.ACTION_COPY, editorComponent);
 
     final JComponent toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.FILEHISTORY_VIEW_TOOLBAR, group, true).getComponent();
 
@@ -205,23 +208,26 @@ public class LineStatusTrackerDrawing {
     component.add(toolbarPanel, BorderLayout.NORTH);
 
     if (range.getType() != Range.INSERTED) {
-      final DocumentEx doc = (DocumentEx) tracker.getUpToDateDocument();
+      final DocumentEx doc = (DocumentEx) tracker.getVcsDocument();
       final EditorEx uEditor = (EditorEx)EditorFactory.getInstance().createViewer(doc, tracker.getProject());
       final EditorHighlighter highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(tracker.getProject(), getFileName(tracker.getDocument()));
       uEditor.setHighlighter(highlighter);
 
       final EditorFragmentComponent editorFragmentComponent =
-        EditorFragmentComponent.createEditorFragmentComponent(uEditor, range.getUOffset1(), range.getUOffset2(), false, false);
+        EditorFragmentComponent.createEditorFragmentComponent(uEditor, range.getVcsLine1(), range.getVcsLine2(), false, false);
 
       component.add(editorFragmentComponent, BorderLayout.CENTER);
 
       EditorFactory.getInstance().releaseEditor(uEditor);
     }
 
+    final List<AnAction> actionList = ActionUtil.getActions(editorComponent);
     final LightweightHint lightweightHint = new LightweightHint(component);
     HintListener closeListener = new HintListener() {
       public void hintHidden(final EventObject event) {
         actionList.remove(rollback);
+        actionList.remove(showDiff);
+        actionList.remove(copyRange);
         actionList.remove(localShowPrevAction);
         actionList.remove(localShowNextAction);
       }
@@ -246,7 +252,7 @@ public class LineStatusTrackerDrawing {
 
   public static void moveToRange(final Range range, final Editor editor, final LineStatusTracker tracker) {
     final Document document = tracker.getDocument();
-    final int lastOffset = document.getLineStartOffset(Math.min(range.getOffset2(), document.getLineCount() - 1));
+    final int lastOffset = document.getLineStartOffset(Math.min(range.getLine2(), document.getLineCount() - 1));
     editor.getCaretModel().moveToOffset(lastOffset);
     editor.getScrollingModel().scrollToCaret(ScrollType.CENTER);
 

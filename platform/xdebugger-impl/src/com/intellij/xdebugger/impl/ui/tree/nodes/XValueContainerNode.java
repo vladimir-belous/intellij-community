@@ -21,10 +21,9 @@ import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.SortedList;
 import com.intellij.xdebugger.frame.*;
-import com.intellij.xdebugger.impl.settings.XDebuggerSettingsManager;
-import com.intellij.xdebugger.impl.ui.DebuggerUIUtil;
 import com.intellij.xdebugger.impl.ui.XDebuggerUIConstants;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
+import com.intellij.xdebugger.settings.XDebuggerSettingsManager;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -75,7 +74,7 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
 
   @Override
   public void addChildren(@NotNull final XValueChildrenList children, final boolean last) {
-    DebuggerUIUtil.invokeLater(new Runnable() {
+    invokeNodeUpdate(new Runnable() {
       @Override
       public void run() {
         if (myValueChildren == null) {
@@ -125,7 +124,7 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
 
   @Override
   public void tooManyChildren(final int remaining) {
-    DebuggerUIUtil.invokeLater(new Runnable() {
+    invokeNodeUpdate(new Runnable() {
       @Override
       public void run() {
         setTemporaryMessageNode(MessageTreeNode.createEllipsisNode(myTree, XValueContainerNode.this, remaining));
@@ -162,7 +161,7 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
   @Override
   public void setMessage(@NotNull final String message,
                          final Icon icon, @NotNull final SimpleTextAttributes attributes, @Nullable final XDebuggerTreeNodeHyperlink link) {
-    DebuggerUIUtil.invokeLater(new Runnable() {
+    invokeNodeUpdate(new Runnable() {
       @Override
       public void run() {
         setMessageNodes(MessageTreeNode.createMessages(myTree, XValueContainerNode.this, message, link,

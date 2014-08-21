@@ -20,6 +20,7 @@ import com.intellij.codeInsight.completion.impl.BetterPrefixMatcher;
 import com.intellij.codeInsight.completion.impl.CamelHumpMatcher;
 import com.intellij.codeInsight.lookup.AutoCompletionPolicy;
 import com.intellij.codeInsight.lookup.LookupElement;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
@@ -27,6 +28,7 @@ import com.intellij.psi.filters.ElementFilter;
 import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.util.CollectConsumer;
 import com.intellij.util.Consumer;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
@@ -40,9 +42,8 @@ import static com.intellij.patterns.PsiJavaPatterns.psiElement;
  * @author peter
  */
 public class JavaNoVariantsDelegator extends CompletionContributor {
-
   @Override
-  public void fillCompletionVariants(final CompletionParameters parameters, CompletionResultSet result) {
+  public void fillCompletionVariants(@NotNull final CompletionParameters parameters, @NotNull CompletionResultSet result) {
     LinkedHashSet<CompletionResult> plainResults = result.runRemainingContributors(parameters, true);
     final boolean empty = containsOnlyPackages(plainResults) || suggestMetaAnnotations(parameters);
 
@@ -116,7 +117,7 @@ public class JavaNoVariantsDelegator extends CompletionContributor {
 
   private static void suggestChainedCalls(CompletionParameters parameters, CompletionResultSet result, PsiElement position) {
     PsiElement parent = position.getParent();
-    if (!(parent instanceof PsiJavaCodeReferenceElement)) {
+    if (!(parent instanceof PsiJavaCodeReferenceElement) || parent.getParent() instanceof PsiImportStatementBase) {
       return;
     }
     PsiElement qualifier = ((PsiJavaCodeReferenceElement)parent).getQualifier();

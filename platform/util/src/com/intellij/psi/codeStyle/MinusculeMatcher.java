@@ -137,6 +137,10 @@ public class MinusculeMatcher implements Matcher {
   }
 
   public int matchingDegree(@NotNull String name) {
+    return matchingDegree(name, false);
+  }
+
+  public int matchingDegree(@NotNull String name, boolean valueStartCaseMatch) {
     FList<TextRange> iterable = matchingFragments(name);
     if (iterable == null) return Integer.MIN_VALUE;
     if (iterable.isEmpty()) return 0;
@@ -176,7 +180,7 @@ public class MinusculeMatcher implements Matcher {
           else if (isHumpStart) matchingCase += 1; // if a lowercase matches lowercase hump start, that also means something 
         } else if (isHumpStart) {
           // disfavor hump starts where pattern letter case doesn't match name case
-          matchingCase -= 20;
+          matchingCase -= 1;
         }
       }
     }
@@ -188,8 +192,9 @@ public class MinusculeMatcher implements Matcher {
 
     return (wordStart ? 1000 : 0) + 
            integral * 10 + 
-           matchingCase * (startMatch ? 10 : 1) + // in start matches, case is more important; in middle matches - fragment length (integral)
+           matchingCase * (startMatch && valueStartCaseMatch ? 10 : 1) +
            (afterSeparator ? 0 : 2) + 
+           (startMatch ? 1 : 0) +
            (finalMatch ? 1 : 0);
   }
 
@@ -292,7 +297,8 @@ public class MinusculeMatcher implements Matcher {
         return null;
       }
       // if the user has typed a dot, don't skip other dots between humps
-      if (!allowSpecialChars && myHasDots && StringUtil.contains(name, nameIndex, nextOccurrence, '.')) {
+      // but one pattern dot may match several name dots
+      if (!allowSpecialChars && myHasDots && !isPatternChar(patternIndex - 1, '.') && StringUtil.contains(name, nameIndex, nextOccurrence, '.')) {
         return null;
       }
       // uppercase should match either uppercase or a word start

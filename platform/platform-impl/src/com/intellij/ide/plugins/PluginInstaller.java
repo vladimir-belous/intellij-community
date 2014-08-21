@@ -26,13 +26,11 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.updateSettings.impl.PluginDownloader;
 import com.intellij.openapi.updateSettings.impl.UpdateChecker;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.ui.GuiUtils;
 import com.intellij.util.ArrayUtil;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 /**
  * @author stathik
@@ -44,6 +42,19 @@ public class PluginInstaller {
   private PluginInstaller() { }
 
   public static boolean prepareToInstall(List<PluginNode> pluginsToInstall, List<IdeaPluginDescriptor> allPlugins) {
+    HashSet<PluginNode> dependant = new HashSet<PluginNode>();
+    boolean install = prepareToInstall(pluginsToInstall, allPlugins, dependant);
+    for (PluginNode node : dependant) {
+      if (!pluginsToInstall.contains(node)) {
+        pluginsToInstall.add(node);
+      }
+    }
+    return install;
+  }
+
+  private static boolean prepareToInstall(List<PluginNode> pluginsToInstall,
+                                          List<IdeaPluginDescriptor> allPlugins,
+                                          Set<PluginNode> installedDependant) {
     ProgressIndicator pi = ProgressManager.getInstance().getProgressIndicator();
 
     final List<PluginId> pluginIds = new ArrayList<PluginId>();
@@ -57,7 +68,7 @@ public class PluginInstaller {
       if (pi != null) pi.setText(pluginNode.getName());
 
       try {
-        result |= prepareToInstall(pluginNode, pluginIds, allPlugins);
+        result |= prepareToInstall(pluginNode, pluginIds, allPlugins, installedDependant);
       }
       catch (IOException e) {
         String title = IdeBundle.message("title.plugin.error");
@@ -71,7 +82,9 @@ public class PluginInstaller {
 
   private static boolean prepareToInstall(final PluginNode pluginNode,
                                           final List<PluginId> pluginIds,
-                                          List<IdeaPluginDescriptor> allPlugins) throws IOException {
+                                          List<IdeaPluginDescriptor> allPlugins,
+                                          Set<PluginNode> installedDependant) throws IOException {
+    installedDependant.add(pluginNode);
     // check for dependent plugins at first.
     if (pluginNode.getDepends() != null && pluginNode.getDepends().size() > 0) {
       // prepare plugins list for install
@@ -82,6 +95,7 @@ public class PluginInstaller {
         PluginId depPluginId = pluginNode.getDepends().get(i);
 
         if (PluginManager.isPluginInstalled(depPluginId) || PluginManagerCore.isModuleDependency(depPluginId) ||
+            PluginManagerUISettings.getInstance().getInstalledPlugins().contains(depPluginId.getIdString()) ||
             (pluginIds != null && pluginIds.contains(depPluginId))) {
           // ignore installed or installing plugins
           continue;
@@ -120,7 +134,7 @@ public class PluginInstaller {
           return false;
         }
         if (proceed[0]) {
-          if (!prepareToInstall(depends, allPlugins)) {
+          if (!prepareToInstall(depends, allPlugins, installedDependant)) {
             return false;
           }
         }
@@ -150,45 +164,42 @@ public class PluginInstaller {
           return false;
         }
         if (proceed[0]) {
-          if (!prepareToInstall(optionalDeps, allPlugins)) {
+          if (!prepareToInstall(optionalDeps, allPlugins, installedDependant)) {
             return false;
           }
         }
       }
     }
 
-    synchronized (myLock) {
-      PluginDownloader downloader = null;
-      final String repositoryName = pluginNode.getRepositoryName();
-      if (repositoryName != null) {
-        try {
-          final List<PluginDownloader> downloaders = new ArrayList<PluginDownloader>();
-          if (!UpdateChecker.checkPluginsHost(repositoryName, downloaders)) {
-            return false;
-          }
-          for (PluginDownloader pluginDownloader : downloaders) {
-            if (Comparing.strEqual(pluginDownloader.getPluginId(), pluginNode.getPluginId().getIdString())) {
-              downloader = pluginDownloader;
-              break;
-            }
-          }
-          if (downloader == null) return false;
-        }
-        catch (Exception e) {
+    PluginDownloader downloader = null;
+    final String repositoryName = pluginNode.getRepositoryName();
+    if (repositoryName != null) {
+      try {
+        final Map<PluginId, PluginDownloader> downloaders = new HashMap<PluginId, PluginDownloader>();
+        if (!UpdateChecker.checkPluginsHost(repositoryName, downloaders)) {
           return false;
         }
+        downloader = downloaders.get(pluginNode.getPluginId());
+        if (downloader == null) return false;
       }
-      else {
-        downloader = PluginDownloader.createDownloader(pluginNode);
-      }
-      if (downloader.prepareToInstall(ProgressManager.getInstance().getProgressIndicator())) {
-        downloader.install();
-        pluginNode.setStatus(PluginNode.STATUS_DOWNLOADED);
-      }
-      else {
+      catch (Exception e) {
         return false;
       }
     }
+    else {
+      downloader = PluginDownloader.createDownloader(pluginNode);
+    }
+
+    if (downloader.prepareToInstall(ProgressManager.getInstance().getProgressIndicator())) {
+      synchronized (myLock) {
+        downloader.install();
+      }
+      pluginNode.setStatus(PluginNode.STATUS_DOWNLOADED);
+    }
+    else {
+      return false;
+    }
+    
 
     return true;
   }

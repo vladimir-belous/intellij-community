@@ -317,7 +317,8 @@ public class SmartTypeCompletionTest extends LightFixtureCompletionTestCase {
     checkResultByFile(path + "/after2.java");
   }
 
-  public void testInsideCatch() throws Exception { doTest(); }
+  public void testInsideCatch() { doTest(); }
+  public void testInsideCatchFinal() { doTest(); }
 
   public void testGenerics6() throws Exception {
     String path = "/generics";
@@ -664,6 +665,31 @@ public class SmartTypeCompletionTest extends LightFixtureCompletionTestCase {
 
   public void testNewAnonymousFunction() throws Throwable { doTest(); }
 
+  public void testNewRunnableInsideMethod() throws Throwable {
+    CommonCodeStyleSettings settings = getCodeStyleSettings();
+    boolean lParenOnNextLine = settings.CALL_PARAMETERS_LPAREN_ON_NEXT_LINE;
+    try {
+      settings.CALL_PARAMETERS_LPAREN_ON_NEXT_LINE = true;
+      doTest();
+    } finally {
+      settings.CALL_PARAMETERS_LPAREN_ON_NEXT_LINE = lParenOnNextLine;
+    }
+  }
+
+  public void testNewRunnableInsideMethodMultiParams() throws Throwable {
+    CommonCodeStyleSettings settings = getCodeStyleSettings();
+    boolean lParenOnNextLine = settings.CALL_PARAMETERS_LPAREN_ON_NEXT_LINE;
+    boolean rParenOnNextLine = settings.CALL_PARAMETERS_RPAREN_ON_NEXT_LINE;
+    try {
+      settings.CALL_PARAMETERS_LPAREN_ON_NEXT_LINE = true;
+      settings.CALL_PARAMETERS_RPAREN_ON_NEXT_LINE = true;
+      doTest();
+    } finally {
+      settings.CALL_PARAMETERS_LPAREN_ON_NEXT_LINE = lParenOnNextLine;
+      settings.CALL_PARAMETERS_RPAREN_ON_NEXT_LINE = rParenOnNextLine;
+    }
+  }
+
   public void testUseIntConstantsFromTargetClass() throws Throwable { doTest(); }
   public void testUseIntConstantsFromTargetClassReturnValue() throws Throwable { doTest(); }
   public void testUseIntConstantsFromConstructedClass() throws Throwable { doTest(); }
@@ -690,7 +716,7 @@ public class SmartTypeCompletionTest extends LightFixtureCompletionTestCase {
   public void testMethodColon() throws Exception { doFirstItemTest(':'); }
   public void testVariableColon() throws Exception { doFirstItemTest(':'); }
 
-  private void doFirstItemTest(char c) throws Exception {
+  private void doFirstItemTest(char c) {
     configureByTestName();
     select(c);
     checkResultByTestName();
@@ -773,7 +799,7 @@ public class SmartTypeCompletionTest extends LightFixtureCompletionTestCase {
   }
   public void testNoClassLiteral() throws Exception {
     doActionTest();
-    assertStringItems("Object.class", "forName", "forName", "getClass");
+    assertStringItems("Object.class", "getClass", "forName", "forName");
   }
 
   public void testClassLiteralInAnno2() throws Throwable {
@@ -797,6 +823,8 @@ public class SmartTypeCompletionTest extends LightFixtureCompletionTestCase {
   public void testIDEADEV2626() throws Exception {
     doActionTest();
   }
+
+  public void testDontSuggestWildcardGenerics() { doItemTest(); }
 
   public void testCastWith2TypeParameters() throws Throwable { doTest(); }
   public void testClassLiteralInArrayAnnoInitializer() throws Throwable { doTest(); }
@@ -994,11 +1022,26 @@ public class SmartTypeCompletionTest extends LightFixtureCompletionTestCase {
 
   public void testCaseMissingEnumValue() throws Throwable { doTest(); }
   public void testCaseMissingEnumValue2() throws Throwable { doTest(); }
+  
+  public void testNoHiddenParameter() { doTest(); }
 
   public void testTypeVariableInstanceOf() throws Throwable {
     configureByTestName();
     performAction();
     assertStringItems("Bar", "Goo");
+  }
+
+  public void testAutoImportExpectedType() throws Throwable {
+    boolean old = CodeInsightSettings.getInstance().ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY;
+    CodeInsightSettings.getInstance().ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY = true;
+    try {
+      configureByTestName();
+      performAction();
+      myFixture.assertPreferredCompletionItems(1, "List", "ArrayList", "AbstractList");
+    }
+    finally {
+      CodeInsightSettings.getInstance().ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY = old;
+    }
   }
 
   public void testNoWrongSubstitutorFromStats() throws Throwable {
@@ -1018,6 +1061,8 @@ public class SmartTypeCompletionTest extends LightFixtureCompletionTestCase {
   public void testArrayInitializerBeforeVarargs() throws Throwable { doTest(); }
   public void testDuplicateMembersFromSuperClass() throws Throwable { doTest(); }
   public void testInnerAfterNew() throws Throwable { doTest(); }
+  public void testEverythingInStringConcatenation() throws Throwable { doTest(); }
+  public void testGetClassWhenClassExpected() { doTest(); }
 
   public void testMemberImportStatically() {
     configureByTestName();
@@ -1098,7 +1143,7 @@ public class SmartTypeCompletionTest extends LightFixtureCompletionTestCase {
     checkResultByTestName();
   }
 
-  private void doItemTest() throws Exception {
+  private void doItemTest() {
     doFirstItemTest('\n');
   }
 
@@ -1106,7 +1151,7 @@ public class SmartTypeCompletionTest extends LightFixtureCompletionTestCase {
     complete();
   }
 
-  private void doTest() throws Exception {
+  private void doTest() {
     doTest(Lookup.NORMAL_SELECT_CHAR);
   }
 

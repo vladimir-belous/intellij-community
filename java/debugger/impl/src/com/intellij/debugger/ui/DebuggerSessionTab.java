@@ -32,7 +32,6 @@ import com.intellij.debugger.ui.impl.VariablesPanel;
 import com.intellij.debugger.ui.impl.WatchDebuggerTree;
 import com.intellij.debugger.ui.impl.watch.*;
 import com.intellij.execution.DefaultExecutionResult;
-import com.intellij.execution.ExecutionException;
 import com.intellij.execution.ExecutionManager;
 import com.intellij.execution.ExecutionResult;
 import com.intellij.execution.configurations.RunProfile;
@@ -43,6 +42,7 @@ import com.intellij.execution.filters.TextConsoleBuilderFactory;
 import com.intellij.execution.ui.ConsoleView;
 import com.intellij.execution.ui.ExecutionConsoleEx;
 import com.intellij.execution.ui.RunContentDescriptor;
+import com.intellij.execution.ui.RunnerLayoutUi;
 import com.intellij.execution.ui.layout.PlaceInGrid;
 import com.intellij.icons.AllIcons;
 import com.intellij.idea.ActionsBundle;
@@ -61,6 +61,7 @@ import com.intellij.unscramble.ThreadDumpPanel;
 import com.intellij.unscramble.ThreadState;
 import com.intellij.xdebugger.XDebuggerBundle;
 import com.intellij.xdebugger.impl.actions.XDebuggerActions;
+import com.intellij.xdebugger.impl.settings.XDebuggerSettingsManager;
 import com.intellij.xdebugger.impl.ui.DebuggerSessionTabBase;
 import com.intellij.xdebugger.impl.ui.XDebuggerUIConstants;
 import org.jetbrains.annotations.NotNull;
@@ -71,7 +72,7 @@ import javax.swing.tree.TreePath;
 import java.util.List;
 
 public class DebuggerSessionTab extends DebuggerSessionTabBase implements Disposable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.ui.DebuggerSessionTab");
+  private static final Logger LOG = Logger.getInstance(DebuggerSessionTab.class);
 
   private final VariablesPanel myVariablesPanel;
   private final MainWatchPanel myWatchPanel;
@@ -81,14 +82,15 @@ public class DebuggerSessionTab extends DebuggerSessionTabBase implements Dispos
   private final MyDebuggerStateManager myStateManager = new MyDebuggerStateManager();
 
   private final FramesPanel myFramesPanel;
-  private DebugUIEnvironment myDebugUIEnvironment;
+  private final DebugUIEnvironment myDebugUIEnvironment;
 
   private final ThreadsPanel myThreadsPanel;
   private static final String THREAD_DUMP_CONTENT_PREFIX = "Dump";
 
   public DebuggerSessionTab(final Project project, final String sessionName, @NotNull final DebugUIEnvironment environment,
-                            @NotNull DebuggerSession debuggerSession) throws ExecutionException {
+                            @NotNull DebuggerSession debuggerSession) {
     super(project, "JavaDebugger", sessionName, debuggerSession.getSearchScope());
+
     myDebuggerSession = debuggerSession;
     myDebugUIEnvironment = environment;
 
@@ -105,7 +107,7 @@ public class DebuggerSessionTab extends DebuggerSessionTabBase implements Dispos
             case DebuggerSession.EVENT_DETACHED:
               myUi.updateActionsNow();
 
-              if (debuggerSettings.HIDE_DEBUGGER_ON_PROCESS_TERMINATION) {
+              if (XDebuggerSettingsManager.getInstanceImpl().getGeneralSettings().isHideDebuggerOnProcessTermination()) {
                 try {
                   ExecutionManager.getInstance(getProject()).getContentManager().hideRunContent(DefaultDebugExecutor.getDebugExecutorInstance(), myRunContentDescriptor);
                 }
@@ -128,10 +130,8 @@ public class DebuggerSessionTab extends DebuggerSessionTabBase implements Dispos
     topToolbar.add(Separator.getInstance(), new Constraints(Anchor.AFTER, DebuggerActions.POP_FRAME));
     myUi.getOptions().setTopToolbar(topToolbar, ActionPlaces.DEBUGGER_TOOLBAR);
 
-
     myWatchPanel = new MainWatchPanel(getProject(), getContextManager());
     myFramesPanel = new FramesPanel(getProject(), getContextManager());
-
 
     final AlertIcon breakpointAlert = new AlertIcon(AllIcons.Debugger.BreakpointAlert);
 
@@ -264,13 +264,13 @@ public class DebuggerSessionTab extends DebuggerSessionTabBase implements Dispos
     final DefaultActionGroup consoleActions = new DefaultActionGroup();
     if (myConsole instanceof ConsoleView) {
       AnAction[] actions = ((ConsoleView)myConsole).createConsoleActions();
-      for (AnAction goaction : actions) {
-        consoleActions.add(goaction);
+      for (AnAction goAction : actions) {
+        consoleActions.add(goAction);
       }
     }
     console.setActions(consoleActions, ActionPlaces.DEBUGGER_TOOLBAR, myConsole.getPreferredFocusableComponent());
 
-    myDebugUIEnvironment.initLogs(myRunContentDescriptor, getLogManager());
+    myDebugUIEnvironment.initLogs(myRunContentDescriptor, myManager);
 
     DefaultActionGroup leftToolbar = new DefaultActionGroup();
 
@@ -347,7 +347,6 @@ public class DebuggerSessionTab extends DebuggerSessionTabBase implements Dispos
     if (action != null) group.add(action);
   }
 
-
   @Override
   public void dispose() {
     disposeSession();
@@ -379,6 +378,12 @@ public class DebuggerSessionTab extends DebuggerSessionTabBase implements Dispos
     final WatchDebuggerTree watchTree = getWatchPanel().getWatchTree();
     for (DebuggerTreeNodeImpl watch : watches) {
       watchTree.addWatch((WatchItemDescriptor)watch.getDescriptor());
+    }
+
+    DebugProcessImpl process = getDebugProcess();
+    DebugProcessImpl reuseProcess = reuseSession.getDebugProcess();
+    if (process != null && reuseProcess != null) {
+      //process.setBreakpointsMuted(reuseProcess.areBreakpointsMuted());
     }
   }
 
@@ -429,7 +434,7 @@ public class DebuggerSessionTab extends DebuggerSessionTabBase implements Dispos
   @Nullable
   @Override
   protected RunProfile getRunProfile() {
-    return myDebugUIEnvironment != null ? myDebugUIEnvironment.getRunProfile() : null;
+    return myDebugUIEnvironment.getRunProfile();
   }
 
   private void attractFramesOnPause(final int event) {
@@ -449,33 +454,31 @@ public class DebuggerSessionTab extends DebuggerSessionTabBase implements Dispos
     myUi.selectAndFocus(myUi.findContent(DebuggerContentInfo.FRAME_CONTENT), true, false);
   }
 
-  private int myThreadDumpsCount = 0;
-  private int myCurrentThreadDumpId = 1;
+  private static int myThreadDumpsCount = 0;
+  private static int myCurrentThreadDumpId = 1;
 
-  public void addThreadDump(List<ThreadState> threads) {
-    final Project project = getProject();
+  public static void addThreadDump(Project project, List<ThreadState> threads, final RunnerLayoutUi ui, DebuggerSession session) {
     final TextConsoleBuilder consoleBuilder = TextConsoleBuilderFactory.getInstance().createBuilder(project);
-    consoleBuilder.filters(ExceptionFilters.getFilters(myDebuggerSession.getSearchScope()));
+    consoleBuilder.filters(ExceptionFilters.getFilters(session.getSearchScope()));
     final ConsoleView consoleView = consoleBuilder.getConsole();
     final DefaultActionGroup toolbarActions = new DefaultActionGroup();
     consoleView.allowHeavyFilters();
     final ThreadDumpPanel panel = new ThreadDumpPanel(project, consoleView, toolbarActions, threads);
 
-    final Icon icon = null;
     final String id = createThreadDumpContentId();
-    final Content content = myUi.createContent(id, panel, id, icon, null);
+    final Content content = ui.createContent(id, panel, id, null, null);
     content.setCloseable(true);
     content.setDescription("Thread Dump");
-    myUi.addContent(content);
-    myUi.selectAndFocus(content, true, true);
+    ui.addContent(content);
+    ui.selectAndFocus(content, true, true);
     myThreadDumpsCount += 1;
     myCurrentThreadDumpId += 1;
-    Disposer.register(this, new Disposable() {
-      @Override
-      public void dispose() {
-        myUi.removeContent(content, true);
-      }
-    });
+    //Disposer.register(this, new Disposable() {
+    //  @Override
+    //  public void dispose() {
+    //    ui.removeContent(content, true);
+    //  }
+    //});
     Disposer.register(content, new Disposable() {
       @Override
       public void dispose() {
@@ -485,13 +488,14 @@ public class DebuggerSessionTab extends DebuggerSessionTabBase implements Dispos
         }
       }
     });
-    myUi.selectAndFocus(content, true, false);
+    Disposer.register(content, consoleView);
+    ui.selectAndFocus(content, true, false);
     if (threads.size() > 0) {
       panel.selectStackFrame(0);
     }
   }
 
-  private String createThreadDumpContentId() {
+  private static String createThreadDumpContentId() {
     return THREAD_DUMP_CONTENT_PREFIX + " #" + myCurrentThreadDumpId;
   }
 
@@ -591,5 +595,4 @@ public class DebuggerSessionTab extends DebuggerSessionTabBase implements Dispos
       }
     }
   }
-
 }

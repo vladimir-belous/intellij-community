@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,15 @@
  */
 package com.intellij.xdebugger.impl;
 
+import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.xdebugger.AbstractDebuggerSession;
-import com.intellij.xdebugger.impl.actions.*;
+import com.intellij.xdebugger.impl.actions.DebuggerActionHandler;
+import com.intellij.xdebugger.impl.actions.DebuggerToggleActionHandler;
+import com.intellij.xdebugger.impl.actions.EditBreakpointActionHandler;
+import com.intellij.xdebugger.impl.actions.MarkObjectActionHandler;
 import com.intellij.xdebugger.impl.breakpoints.ui.BreakpointPanelProvider;
 import com.intellij.xdebugger.impl.evaluate.quick.common.QuickEvaluateHandler;
 import com.intellij.xdebugger.impl.settings.DebuggerSettingsPanelProvider;
@@ -32,6 +36,23 @@ import org.jetbrains.annotations.Nullable;
 public abstract class DebuggerSupport {
   private static final ExtensionPointName<DebuggerSupport> EXTENSION_POINT = ExtensionPointName.create("com.intellij.xdebugger.debuggerSupport");
 
+  @SuppressWarnings("deprecation")
+  private static final DebuggerSettingsPanelProvider EMPTY_SETTINGS_PANEL_PROVIDER = new DebuggerSettingsPanelProvider() {
+  };
+
+  protected static final class DisabledActionHandler extends DebuggerActionHandler {
+    public static final DisabledActionHandler INSTANCE = new DisabledActionHandler();
+
+    @Override
+    public void perform(@NotNull Project project, AnActionEvent event) {
+    }
+
+    @Override
+    public boolean isEnabled(@NotNull Project project, AnActionEvent event) {
+      return false;
+    }
+  }
+
   @NotNull
   public static DebuggerSupport[] getDebuggerSupports() {
     return Extensions.getExtensions(EXTENSION_POINT);
@@ -40,8 +61,15 @@ public abstract class DebuggerSupport {
   @NotNull
   public abstract BreakpointPanelProvider<?> getBreakpointPanelProvider();
 
+  /**
+   * @deprecated Use {@link com.intellij.xdebugger.settings.DebuggerConfigurableProvider}
+   */
+  @Deprecated
+  @SuppressWarnings("deprecation")
   @NotNull
-  public abstract DebuggerSettingsPanelProvider getSettingsPanelProvider();
+  public DebuggerSettingsPanelProvider getSettingsPanelProvider() {
+    return EMPTY_SETTINGS_PANEL_PROVIDER;
+  }
 
   @NotNull
   public abstract DebuggerActionHandler getStepOverHandler();
@@ -95,6 +123,10 @@ public abstract class DebuggerSupport {
   @NotNull
   public abstract DebuggerActionHandler getAddToWatchesActionHandler();
 
+  public DebuggerActionHandler getEvaluateInConsoleActionHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
+
   @NotNull
   public abstract DebuggerToggleActionHandler getMuteBreakpointsHandler();
 
@@ -116,6 +148,6 @@ public abstract class DebuggerSupport {
         return support;
       }
     }
-    return null;
+    throw new IllegalStateException();
   }
 }

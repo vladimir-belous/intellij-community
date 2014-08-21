@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,10 +38,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.*;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.Collection;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import static com.intellij.openapi.vfs.VirtualFileVisitor.VisitorException;
 
@@ -49,6 +46,8 @@ public class VfsUtilCore {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vfs.VfsUtilCore");
 
   public static final String LOCALHOST_URI_PATH_PREFIX = "localhost/";
+  public static final char VFS_SEPARATOR_CHAR = '/';
+
   private static final String PROTOCOL_DELIMITER = ":";
 
   /**
@@ -87,6 +86,20 @@ public class VfsUtilCore {
     return false;
   }
 
+  /**
+   * @return {@code true} if {@code url} is located under one of {@code rootUrls} or equal to one of them
+   */
+  public static boolean isUnder(@NotNull String url, @Nullable Collection<String> rootUrls) {
+    if (rootUrls == null || rootUrls.isEmpty()) return false;
+
+    for (String excludesUrl : rootUrls) {
+      if (isEqualOrAncestor(excludesUrl, url)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public static boolean isEqualOrAncestor(@NotNull String ancestorUrl, @NotNull String fileUrl) {
     if (ancestorUrl.equals(fileUrl)) return true;
     if (StringUtil.endsWithChar(ancestorUrl, '/')) {
@@ -107,6 +120,11 @@ public class VfsUtilCore {
     return false;
   }
 
+  @Nullable
+  public static String getRelativePath(@NotNull VirtualFile file, @NotNull VirtualFile ancestor) {
+    return getRelativePath(file, ancestor, VFS_SEPARATOR_CHAR);
+  }
+
   /**
    * Gets the relative path of <code>file</code> to its <code>ancestor</code>. Uses <code>separator</code> for
    * separating files.
@@ -118,12 +136,10 @@ public class VfsUtilCore {
    */
   @Nullable
   public static String getRelativePath(@NotNull VirtualFile file, @NotNull VirtualFile ancestor, char separator) {
-    if (!file.getFileSystem().equals(ancestor.getFileSystem())) return null;
+    if (!file.getFileSystem().equals(ancestor.getFileSystem())) {
+      return null;
+    }
 
-    return doGetRelative(file, ancestor, separator);
-  }
-
-  public static String doGetRelative(VirtualFile file, VirtualFile ancestor, char separator) {
     int length = 0;
     VirtualFile parent = file;
     while (true) {
@@ -132,7 +148,7 @@ public class VfsUtilCore {
       if (length > 0) {
         length++;
       }
-      length += parent.getName().length();
+      length += parent.getNameSequence().length();
       parent = parent.getParent();
     }
 
@@ -144,7 +160,7 @@ public class VfsUtilCore {
       if (index < length) {
         chars[--index] = separator;
       }
-      String name = parent.getName();
+      CharSequence name = parent.getNameSequence();
       for (int i = name.length() - 1; i >= 0; i--) {
         chars[--index] = name.charAt(i);
       }
@@ -175,6 +191,7 @@ public class VfsUtilCore {
    * @return a copy of the file
    * @throws java.io.IOException if file failed to be copied
    */
+  @NotNull
   public static VirtualFile copyFile(Object requestor, @NotNull VirtualFile file, @NotNull VirtualFile toDir) throws IOException {
     return copyFile(requestor, file, toDir, file.getName());
   }
@@ -191,6 +208,7 @@ public class VfsUtilCore {
    * @return a copy of the file
    * @throws java.io.IOException if file failed to be copied
    */
+  @NotNull
   public static VirtualFile copyFile(Object requestor, @NotNull VirtualFile file, @NotNull VirtualFile toDir, @NotNull @NonNls String newName)
     throws IOException {
     final VirtualFile newChild = toDir.createChildData(requestor, newName);
@@ -540,6 +558,56 @@ public class VfsUtilCore {
     }
 
     return true;
+  }
+
+  /**
+   * Gets the common ancestor for passed files, or null if the files do not have common ancestors.
+   *
+   * @param file1 fist file
+   * @param file2 second file
+   * @return common ancestor for the passed files. Returns <code>null</code> if
+   *         the files do not have common ancestor
+   */
+  @Nullable
+  public static VirtualFile getCommonAncestor(@NotNull VirtualFile file1, @NotNull VirtualFile file2) {
+    if (!file1.getFileSystem().equals(file2.getFileSystem())) {
+      return null;
+    }
+
+    VirtualFile[] path1 = getPathComponents(file1);
+    VirtualFile[] path2 = getPathComponents(file2);
+
+    int lastEqualIdx = -1;
+    for (int i = 0; i < path1.length && i < path2.length; i++) {
+      if (path1[i].equals(path2[i])) {
+        lastEqualIdx = i;
+      }
+      else {
+        break;
+      }
+    }
+    return lastEqualIdx == -1 ? null : path1[lastEqualIdx];
+  }
+
+  /**
+   * Gets an array of files representing paths from root to the passed file.
+   *
+   * @param file the file
+   * @return virtual files which represents paths from root to the passed file
+   */
+  @NotNull
+  static VirtualFile[] getPathComponents(@NotNull VirtualFile file) {
+    ArrayList<VirtualFile> componentsList = new ArrayList<VirtualFile>();
+    while (file != null) {
+      componentsList.add(file);
+      file = file.getParent();
+    }
+    int size = componentsList.size();
+    VirtualFile[] components = new VirtualFile[size];
+    for (int i = 0; i < size; i++) {
+      components[i] = componentsList.get(size - i - 1);
+    }
+    return components;
   }
 
   /**

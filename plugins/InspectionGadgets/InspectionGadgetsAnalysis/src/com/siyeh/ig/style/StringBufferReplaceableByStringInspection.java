@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2013 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,12 +20,12 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
+import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
 import com.siyeh.ig.psiutils.TypeUtils;
 import org.jetbrains.annotations.NonNls;
@@ -85,7 +85,7 @@ public class StringBufferReplaceableByStringInspection extends BaseInspection {
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
       final PsiElement parent = element.getParent();
       if (!(parent instanceof PsiVariable)) {
@@ -93,7 +93,7 @@ public class StringBufferReplaceableByStringInspection extends BaseInspection {
           final PsiExpression stringBuilderExpression = getCompleteExpression(parent);
           final StringBuilder stringExpression = buildStringExpression(stringBuilderExpression, new StringBuilder());
           if (stringExpression != null && stringBuilderExpression != null) {
-            replaceExpression(stringBuilderExpression, stringExpression.toString());
+            PsiReplacementUtil.replaceExpression(stringBuilderExpression, stringExpression.toString());
           }
         }
         return;
@@ -144,7 +144,7 @@ public class StringBufferReplaceableByStringInspection extends BaseInspection {
         expression.getParent().delete();
       }
       final PsiMethodCallExpression lastExpression = expressions.get(expressions.size() - 1);
-      replaceExpression(lastExpression, stringExpression.toString());
+      PsiReplacementUtil.replaceExpression(lastExpression, stringExpression.toString());
     }
 
     @Nullable
@@ -223,8 +223,12 @@ public class StringBufferReplaceableByStringInspection extends BaseInspection {
               if (argument instanceof PsiLiteralExpression) {
                 final PsiLiteralExpression literalExpression = (PsiLiteralExpression)argument;
                 if (PsiType.CHAR.equals(literalExpression.getType())) {
-                  final String text = literalExpression.getText();
-                  result.append('"').append(text.substring(1, text.length() - 1)).append('"');
+                  result.append('"');
+                  final Character c = (Character)literalExpression.getValue();
+                  if (c != null) {
+                    result.append(StringUtil.escapeStringCharacters(c.toString()));
+                  }
+                  result.append('"');
                 }
                 else {
                   result.append('"').append(literalExpression.getValue()).append('"');
@@ -285,6 +289,9 @@ public class StringBufferReplaceableByStringInspection extends BaseInspection {
           methodCallExpression = (PsiMethodCallExpression)grandParent;
           parent = methodCallExpression.getParent();
           grandParent = parent.getParent();
+          if ("toString".equals(methodCallExpression.getMethodExpression().getReferenceName())) {
+            break;
+          }
         }
         if (buildStringExpression(methodCallExpression, myBuilder) == null) {
           myProblem = true;

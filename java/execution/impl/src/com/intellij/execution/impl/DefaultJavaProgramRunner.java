@@ -15,7 +15,10 @@
  */
 package com.intellij.execution.impl;
 
-import com.intellij.execution.*;
+import com.intellij.execution.ExecutionBundle;
+import com.intellij.execution.ExecutionException;
+import com.intellij.execution.ExecutionResult;
+import com.intellij.execution.RunnerRegistry;
 import com.intellij.execution.configurations.*;
 import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.process.CapturingProcessAdapter;
@@ -66,10 +69,10 @@ public class DefaultJavaProgramRunner extends JavaPatchableProgramRunner {
   }
 
   @Override
-  protected RunContentDescriptor doExecute(final Project project,
-                                           final RunProfileState state,
+  protected RunContentDescriptor doExecute(@NotNull final Project project,
+                                           @NotNull final RunProfileState state,
                                            final RunContentDescriptor contentToReuse,
-                                           final ExecutionEnvironment env) throws ExecutionException {
+                                           @NotNull final ExecutionEnvironment env) throws ExecutionException {
     FileDocumentManager.getInstance().saveAllDocuments();
 
     ExecutionResult executionResult;
@@ -96,24 +99,19 @@ public class DefaultJavaProgramRunner extends JavaPatchableProgramRunner {
 
     onProcessStarted(env.getRunnerSettings(), executionResult);
 
-    final RunContentBuilder contentBuilder = new RunContentBuilder(this, executionResult, env);
+    final RunContentBuilder contentBuilder = new RunContentBuilder(executionResult, env);
     Disposer.register(project, contentBuilder);
     if (shouldAddDefaultActions) {
       addDefaultActions(contentBuilder);
     }
-
-    RunContentDescriptor runContent = contentBuilder.showRunContent(contentToReuse);
-
-    AnAction[] actions = createActions(contentBuilder.getExecutionResult());
-
-    for (AnAction action : actions) {
-      contentBuilder.addAction(action);
-    }
-
-    return runContent;
+    return contentBuilder.showRunContent(contentToReuse);
   }
 
-  protected AnAction[] createActions(final ExecutionResult executionResult) {
+  @Deprecated
+  /**
+   * @deprecated to remove in IDEA 14
+   */
+  protected AnAction[] createActions(@SuppressWarnings("UnusedParameters") final ExecutionResult executionResult) {
     return AnAction.EMPTY_ARRAY;
   }
 
@@ -221,9 +219,10 @@ public class DefaultJavaProgramRunner extends JavaPatchableProgramRunner {
             threadStates = ThreadDumpParser.parse(stdout);
             if (threadStates == null || threadStates.isEmpty()) {
               try {
+                //noinspection BusyWait
                 Thread.sleep(50);
               }
-              catch (InterruptedException e1) {
+              catch (InterruptedException ignored) {
                 //
               }
               threadStates = null;

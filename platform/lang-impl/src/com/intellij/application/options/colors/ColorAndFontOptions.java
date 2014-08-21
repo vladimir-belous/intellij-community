@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import com.intellij.application.options.OptionsContainingConfigurable;
 import com.intellij.application.options.editor.EditorOptionsProvider;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.execution.impl.ConsoleViewUtil;
+import com.intellij.ide.bookmarks.BookmarkManager;
 import com.intellij.ide.todo.TodoConfiguration;
 import com.intellij.ide.ui.LafManager;
 import com.intellij.ide.ui.laf.darcula.DarculaInstaller;
@@ -80,6 +81,8 @@ import java.util.*;
 import java.util.List;
 
 public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract implements EditorOptionsProvider {
+  public static final String ID = "reference.settingsdialog.IDE.editor.colors";
+
   private HashMap<String,MyColorScheme> mySchemes;
   private MyColorScheme mySelectedScheme;
   public static final String DIFF_GROUP = ApplicationBundle.message("title.diff");
@@ -275,6 +278,7 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract 
     for (Project openProject : openProjects) {
       FileStatusManager.getInstance(openProject).fileStatusesChanged();
       DaemonCodeAnalyzer.getInstance(openProject).restart();
+      BookmarkManager.getInstance(openProject).colorsChanged();
     }
   }
 
@@ -997,7 +1001,7 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract 
   @Override
   @NotNull
   public String getHelpTopic() {
-    return "reference.settingsdialog.IDE.editor.colors";
+    return ID;
   }
 
   private static class MyColorScheme extends EditorColorsSchemeImpl {
@@ -1022,13 +1026,14 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract 
       initFonts();
     }
 
+    @NotNull
     @Override
     public String getName() {
       return myName;
     }
 
     @Override
-    public void setName(String name) {
+    public void setName(@NotNull String name) {
       myName = name;
     }
 

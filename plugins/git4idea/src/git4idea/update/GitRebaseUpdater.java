@@ -18,14 +18,12 @@ package git4idea.update;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vcs.VcsException;
+import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vcs.update.UpdatedFiles;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.ui.UIUtil;
 import git4idea.GitBranch;
 import git4idea.GitUtil;
-import git4idea.Notificator;
 import git4idea.branch.GitBranchPair;
 import git4idea.commands.Git;
 import git4idea.commands.GitCommandResult;
@@ -78,40 +76,10 @@ public class GitRebaseUpdater extends GitUpdater {
     return dest.getName();
   }
 
-  // TODO
-    //if (!checkLocallyModified(myRoot)) {
-    //  cancel();
-    //  updateSucceeded.set(false);
-    //}
-
-
-    // TODO: show at any case of update successfullibility, also don't show here but for all roots
-    //if (mySkippedCommits.size() > 0) {
-    //  GitSkippedCommits.showSkipped(myProject, mySkippedCommits);
-    //}
-
   public void cancel() {
     myRebaser.abortRebase(myRoot);
     myProgressIndicator.setText2("Refreshing files for the root " + myRoot.getPath());
     myRoot.refresh(false, true);
-  }
-
-  /**
-   * Check and process locally modified files
-   *
-   * @param root      the project root
-   * @param ex        the exception holder
-   */
-  protected boolean checkLocallyModified(final VirtualFile root) throws VcsException {
-    final Ref<Boolean> cancelled = new Ref<Boolean>(false);
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      public void run() {
-        if (!GitUpdateLocallyModifiedDialog.showIfNeeded(myProject, root)) {
-          cancelled.set(true);
-        }
-      }
-    });
-    return !cancelled.get();
   }
 
   @Override
@@ -147,10 +115,11 @@ public class GitRebaseUpdater extends GitUpdater {
       // this is not critical, and update has already happened,
       // so we just notify the user about problems with collecting the updated changes.
       LOG.info("Couldn't mark end for repository " + myRoot, e);
-      Notificator.getInstance(myProject).
-        notifyWeakWarning("Couldn't collect the updated files info",
-                          String.format("Update of %s was successful, but we couldn't collect the updated changes because of an error",
-                                        myRoot), null);
+      VcsNotifier.getInstance(myProject).
+        notifyMinorWarning("Couldn't collect the updated files info",
+                           String.format("Update of %s was successful, but we couldn't collect the updated changes because of an error",
+                                         myRoot), null
+        );
     }
     return result.success();
   }

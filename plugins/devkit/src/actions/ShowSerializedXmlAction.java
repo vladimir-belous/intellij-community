@@ -19,8 +19,6 @@ import com.intellij.CommonBundle;
 import com.intellij.compiler.impl.FileSetCompileScope;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.LangDataKeys;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.compiler.CompileContext;
 import com.intellij.openapi.compiler.CompileStatusNotification;
 import com.intellij.openapi.compiler.CompilerManager;
@@ -43,6 +41,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.containers.FList;
 import com.intellij.util.lang.UrlClassLoader;
 import com.intellij.util.xmlb.Accessor;
+import com.intellij.util.xmlb.XmlSerializationException;
 import com.intellij.util.xmlb.XmlSerializer;
 import com.intellij.util.xmlb.XmlSerializerUtil;
 import org.jdom.Element;
@@ -123,7 +122,16 @@ public class ShowSerializedXmlAction extends DumbAwareAction {
       return;
     }
 
-    final Element element = XmlSerializer.serialize(o);
+    final Element element;
+    try {
+      element = XmlSerializer.serialize(o);
+    }
+    catch (XmlSerializationException e) {
+      LOG.info(e);
+      Throwable cause = e.getCause();
+      Messages.showErrorDialog(project, e.getMessage() + (cause != null ? ": " + cause.getMessage() : ""), CommonBundle.getErrorTitle());
+      return;
+    }
     final String text = JDOMUtil.writeElement(element, "\n");
     Messages.showIdeaMessageDialog(project, text, "Serialized XML for '" + className + "'",
                                    new String[]{CommonBundle.getOkButtonText()}, 0, Messages.getInformationIcon(), null);
@@ -184,7 +192,7 @@ public class ShowSerializedXmlAction extends DumbAwareAction {
     }
 
     public Object createObject(Class<?> aClass, FList<Type> processedTypes) throws Exception {
-      final Object o = aClass.newInstance();
+      final Object o = aClass.getDeclaredConstructor().newInstance();
       for (Accessor accessor : XmlSerializerUtil.getAccessors(aClass)) {
         final Type type = accessor.getGenericType();
         Object value = createValue(type, processedTypes);

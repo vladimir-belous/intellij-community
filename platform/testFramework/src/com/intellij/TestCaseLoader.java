@@ -25,6 +25,7 @@
 package com.intellij;
 
 import com.intellij.idea.Bombed;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.TestRunnerUtil;
@@ -32,21 +33,17 @@ import junit.framework.Test;
 import junit.framework.TestCase;
 import junit.framework.TestSuite;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.net.URL;
 import java.util.*;
-import java.util.List;
 
 @SuppressWarnings({"HardCodedStringLiteral", "UseOfSystemOutOrSystemErr", "CallToPrintStackTrace", "TestOnlyProblems"})
 public class TestCaseLoader {
-  /** Holds name of JVM property that is assumed to define target test group name. */
-  private static final String TARGET_TEST_GROUP = "idea.test.group";
-
-  /** Holds name of JVM property that is assumed to define filtering rules for test classes. */
-  private static final String TARGET_TEST_PATTERNS = "idea.test.patterns";
-
+  public static final String TARGET_TEST_GROUP = "idea.test.group";
+  public static final String TARGET_TEST_PATTERNS = "idea.test.patterns";
   public static final String PERFORMANCE_TESTS_ONLY_FLAG = "idea.performance.tests";
   public static final String SKIP_COMMUNITY_TESTS = "idea.skip.community.tests";
 
@@ -65,15 +62,24 @@ public class TestCaseLoader {
       System.out.println("Using patterns: [" + patterns +"]");
     }
     else {
-      URL excludedStream = StringUtil.isEmpty(classFilterName) ? null : getClass().getClassLoader().getResource(classFilterName);
-      if (excludedStream != null) {
-        TestClassesFilter filter;
+      List<URL> groupingFileUrls = Collections.emptyList();
+      if (!StringUtil.isEmpty(classFilterName)) {
         try {
-          String testGroupName = System.getProperty(TARGET_TEST_GROUP, "").trim();
-          InputStreamReader reader = new InputStreamReader(excludedStream.openStream());
+          groupingFileUrls = Collections.list(getClass().getClassLoader().getResources(classFilterName));
+        }
+        catch (IOException e) {
+          e.printStackTrace();
+        }
+      }
+
+      List<String> testGroupNames = StringUtil.split(System.getProperty(TARGET_TEST_GROUP, "").trim(), ";");
+      Map<String, List<String>> groups = new LinkedHashMap<String, List<String>>();
+
+      for (URL fileUrl : groupingFileUrls) {
+        try {
+          InputStreamReader reader = new InputStreamReader(fileUrl.openStream());
           try {
-            filter = GroupBasedTestClassFilter.createOn(reader, testGroupName);
-            System.out.println("Using test group: [" + testGroupName +"]");
+            groups.putAll(GroupBasedTestClassFilter.readGroups(reader));
           }
           finally {
             reader.close();
@@ -81,23 +87,21 @@ public class TestCaseLoader {
         }
         catch (IOException e) {
           e.printStackTrace();
-          filter = TestClassesFilter.ALL_CLASSES;
-          System.out.println("Using all classes");
+          System.err.println("Failed to load test groups from " + fileUrl);
         }
-        myTestClassesFilter = filter;
+      }
+
+      if (groups.isEmpty()) {
+        System.out.println("Using all classes");
+        myTestClassesFilter = TestClassesFilter.ALL_CLASSES;
       }
       else {
-        myTestClassesFilter = TestClassesFilter.ALL_CLASSES;
-        System.out.println("Using all classes");
+        System.out.println("Using test groups: " + testGroupNames);
+        myTestClassesFilter = new GroupBasedTestClassFilter(groups, testGroupNames);
       }
     }
   }
 
-  /*
-   * Adds <code>testCaseClass</code> to the list of classes
-   * if the class is a test case we wish to load. Calls
-   * <code>shouldLoadTestCase ()</code> to determine that.
-   */
   void addClassIfTestCase(Class testCaseClass) {
     if (shouldAddTestCase(testCaseClass, true) &&
         testCaseClass != myFirstTestClass && testCaseClass != myLastTestClass &&
@@ -118,9 +122,6 @@ public class TestCaseLoader {
     myLastTestClass = aClass;
   }
 
-  /**
-   * Determine if we should load this test case.
-   */
   private boolean shouldAddTestCase(final Class<?> testCaseClass, boolean testForExcluded) {
     if ((testCaseClass.getModifiers() & Modifier.ABSTRACT) != 0) return false;
     if (testForExcluded && shouldExcludeTestClass(testCaseClass)) return false;
@@ -131,23 +132,17 @@ public class TestCaseLoader {
     try {
       final Method suiteMethod = testCaseClass.getMethod("suite");
       if (Test.class.isAssignableFrom(suiteMethod.getReturnType()) && (suiteMethod.getModifiers() & Modifier.STATIC) != 0) {
-        //System.out.println("testCaseClass = " + testCaseClass);
         return true;
       }
     }
-    catch (NoSuchMethodException e) {
-      // can't be
-    }
+    catch (NoSuchMethodException ignored) { }
 
     return TestRunnerUtil.isJUnit4TestClass(testCaseClass);
   }
 
-  /*
-   * Determine if we should exclude this test case.
-   */
   private boolean shouldExcludeTestClass(Class testCaseClass) {
     String className = testCaseClass.getName();
-    if (className.toLowerCase().contains("performance") && !myIsPerformanceTestsRun) return true;
+    if (className.toLowerCase(Locale.US).contains("performance") && !myIsPerformanceTestsRun) return true;
 
     return !myTestClassesFilter.matches(className) || isBombed(testCaseClass);
   }
@@ -158,7 +153,6 @@ public class TestCaseLoader {
     if (PlatformTestUtil.isRotten(bombedAnnotation)) {
       String message = "Disarm the stale bomb for '" + method + "' in class '" + method.getDeclaringClass() + "'";
       System.err.println(message);
-      //Assert.fail(message);
     }
     return !PlatformTestUtil.bombExplodes(bombedAnnotation);
   }
@@ -169,7 +163,6 @@ public class TestCaseLoader {
     if (PlatformTestUtil.isRotten(bombedAnnotation)) {
       String message = "Disarm the stale bomb for '" + testCaseClass + "'";
       System.err.println(message);
-     // Assert.fail(message);
     }
     return !PlatformTestUtil.bombExplodes(bombedAnnotation);
   }
@@ -200,30 +193,15 @@ public class TestCaseLoader {
   private static final List<String> ourRankList = getTeamCityRankList();
 
   private static List<String> getTeamCityRankList() {
-    final String filePath = System.getProperty("teamcity.tests.recentlyFailedTests.file", null);
-    if (filePath == null) {
-      return Collections.emptyList();
+    String filePath = System.getProperty("teamcity.tests.recentlyFailedTests.file", null);
+    if (filePath != null) {
+      try {
+        return FileUtil.loadLines(filePath);
+      }
+      catch (IOException ignored) { }
     }
 
-    try {
-      final List<String> result = new ArrayList<String>();
-      final BufferedReader reader = new BufferedReader(new FileReader(filePath));
-      try {
-        do {
-          final String className = reader.readLine();
-          if (className == null) break;
-          result.add(className);
-        }
-        while (true);
-        return result;
-      }
-      finally {
-        reader.close();
-      }
-    }
-    catch (IOException e) {
-      return Collections.emptyList();
-    }
+    return Collections.emptyList();
   }
 
   private int getRank(Class aClass) {

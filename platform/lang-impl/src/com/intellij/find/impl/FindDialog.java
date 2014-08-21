@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,15 +28,13 @@ import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.fileTypes.FileTypeManager;
-import com.intellij.openapi.fileTypes.FileTypes;
+import com.intellij.openapi.fileTypes.PlainTextFileType;
 import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.*;
-import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
@@ -47,25 +45,21 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.search.SearchScope;
-import com.intellij.ui.EditorComboBoxRenderer;
-import com.intellij.ui.EditorTextField;
-import com.intellij.ui.IdeBorderFactory;
-import com.intellij.ui.StateRestoringCheckBox;
-import com.intellij.ui.components.labels.LinkLabel;
-import com.intellij.ui.components.labels.LinkListener;
+import com.intellij.ui.*;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.NonNls;
+import org.intellij.lang.regexp.RegExpFileType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.text.BadLocationException;
 import java.awt.*;
 import java.awt.event.*;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -77,8 +71,7 @@ public class FindDialog extends DialogWrapper {
   private StateRestoringCheckBox myCbCaseSensitive;
   private StateRestoringCheckBox myCbPreserveCase;
   private StateRestoringCheckBox myCbWholeWordsOnly;
-  private StateRestoringCheckBox myCbInCommentsOnly;
-  private StateRestoringCheckBox myCbInStringLiteralsOnly;
+  private ComboBox mySearchContext;
   private StateRestoringCheckBox myCbRegularExpressions;
   private JRadioButton myRbGlobal;
   private JRadioButton myRbSelectedText;
@@ -222,7 +215,7 @@ public class FindDialog extends DialogWrapper {
     myReplacePrompt.setVisible(myModel.isReplaceState());
     myReplaceComboBox.setVisible(myModel.isReplaceState());
     if (myCbToSkipResultsWhenOneUsage != null) {
-      myCbToSkipResultsWhenOneUsage.setVisible(myModel.isReplaceState());
+      myCbToSkipResultsWhenOneUsage.setVisible(!myModel.isReplaceState());
     }
     myCbPreserveCase.setVisible(myModel.isReplaceState());
   }
@@ -344,6 +337,9 @@ public class FindDialog extends DialogWrapper {
     topOptionsPanel.setLayout(new GridLayout(1, 2, UIUtil.DEFAULT_HGAP, 0));
     topOptionsPanel.add(createFindOptionsPanel());
     optionsPanel.add(topOptionsPanel, gbConstraints);
+    
+    JPanel resultsOptionPanel = null;
+    
     if (myModel.isMultipleFiles()) {
       optionsPanel.add(createGlobalScopePanel(), gbConstraints);
       gbConstraints.weightx = 1;
@@ -353,9 +349,11 @@ public class FindDialog extends DialogWrapper {
       gbConstraints.gridwidth = GridBagConstraints.REMAINDER;
       optionsPanel.add(createFilterPanel(),gbConstraints);
 
-      myCbToSkipResultsWhenOneUsage = createCheckbox(FindSettings.getInstance().isSkipResultsWithOneUsage(), FindBundle.message("find.options.skip.results.tab.with.one.usage.checkbox"));
-      optionsPanel.add(myCbToSkipResultsWhenOneUsage, gbConstraints);
-      myCbToSkipResultsWhenOneUsage.setVisible(myModel.isReplaceState());
+      myCbToSkipResultsWhenOneUsage = createCheckbox(FindSettings.getInstance().isSkipResultsWithOneUsage(), FindBundle.message("find.options.skip.results.tab.with.one.occurrence.checkbox"));
+      resultsOptionPanel = createResultsOptionPanel(optionsPanel, gbConstraints);
+      resultsOptionPanel.add(myCbToSkipResultsWhenOneUsage);
+
+      myCbToSkipResultsWhenOneUsage.setVisible(!myModel.isReplaceState());
     }
     else {
       if (FindManagerImpl.ourHasSearchInCommentsAndLiterals) {
@@ -378,16 +376,24 @@ public class FindDialog extends DialogWrapper {
     }
 
     if (myModel.isOpenInNewTabVisible()){
-      JPanel openInNewTabWindowPanel = new JPanel(new BorderLayout());
       myCbToOpenInNewTab = new JCheckBox(FindBundle.message("find.open.in.new.tab.checkbox"));
       myCbToOpenInNewTab.setFocusable(false);
       myCbToOpenInNewTab.setSelected(myModel.isOpenInNewTab());
       myCbToOpenInNewTab.setEnabled(myModel.isOpenInNewTabEnabled());
-      openInNewTabWindowPanel.add(myCbToOpenInNewTab, BorderLayout.EAST);
-      optionsPanel.add(openInNewTabWindowPanel, gbConstraints);
+
+      if (resultsOptionPanel == null) resultsOptionPanel = createResultsOptionPanel(optionsPanel, gbConstraints);
+      resultsOptionPanel.add(myCbToOpenInNewTab);
     }
 
     return optionsPanel;
+  }
+
+  private static JPanel createResultsOptionPanel(JPanel optionsPanel, GridBagConstraints gbConstraints) {
+    JPanel resultsOptionPanel = new JPanel();
+    resultsOptionPanel.setLayout(new BoxLayout(resultsOptionPanel, BoxLayout.Y_AXIS));
+
+    optionsPanel.add(new HideableTitledPanel(FindBundle.message("results.options.group"), resultsOptionPanel, false), gbConstraints);
+    return resultsOptionPanel;
   }
 
   @NotNull
@@ -475,6 +481,9 @@ public class FindDialog extends DialogWrapper {
     findSettings.setWholeWordsOnly(myModel.isWholeWordsOnly());
     findSettings.setInStringLiteralsOnly(myModel.isInStringLiteralsOnly());
     findSettings.setInCommentsOnly(myModel.isInCommentsOnly());
+    findSettings.setExceptComments(myModel.isExceptComments());
+    findSettings.setExceptStringLiterals(myModel.isExceptStringLiterals());
+    findSettings.setExceptCommentsAndLiterals(myModel.isExceptCommentsAndStringLiterals());
 
     findSettings.setRegularExpressions(myModel.isRegularExpressions());
     if (!myModel.isMultipleFiles()){
@@ -602,39 +611,28 @@ public class FindDialog extends DialogWrapper {
     regExPanel.setLayout(new BoxLayout(regExPanel, BoxLayout.X_AXIS));
     regExPanel.add(myCbRegularExpressions);
 
-    regExPanel.add(new LinkLabel("[Help]", null, new LinkListener() {
-      @Override
-      public void linkSelected(LinkLabel aSource, Object aLinkData) {
-        try {
-          final JBPopup helpPopup = RegExHelpPopup.createRegExHelpPopup();
-          helpPopup.showInCenterOf(regExPanel);
-        }
-        catch (BadLocationException e) {
-          LOG.info(e);
-        }
-      }
-    }));
+    regExPanel.add(RegExHelpPopup.createRegExLink("[Help]", regExPanel, LOG));
 
     findOptionsPanel.add(regExPanel);
 
-    myCbInCommentsOnly = createCheckbox(FindBundle.message("find.options.comments.only"));
-    myCbInStringLiteralsOnly = createCheckbox(FindBundle.message("find.options.string.literals.only"));
-    ItemListener itemListener = new ItemListener() {
-      @Override
-      public void itemStateChanged(ItemEvent e) {
-        if (e.getSource() == myCbInCommentsOnly) {
-          if (myCbInCommentsOnly.isSelected()) myCbInStringLiteralsOnly.setSelected(false);
-        } else if (e.getSource() == myCbInStringLiteralsOnly) {
-          if (myCbInStringLiteralsOnly.isSelected()) myCbInCommentsOnly.setSelected(false);
-        }
-      }
-    };
-    myCbInCommentsOnly.addItemListener(itemListener);
-    myCbInStringLiteralsOnly.addItemListener(itemListener);
+    mySearchContext = new ComboBox(new Object[] {FindBundle.message("find.context.anywhere.scope.label", 200),
+      FindBundle.message("find.context.in.comments.scope.label"), FindBundle.message("find.context.in.literals.scope.label"),
+      FindBundle.message("find.context.except.comments.scope.label"),
+      FindBundle.message("find.context.except.literals.scope.label"),
+      FindBundle.message("find.context.except.comments.and.literals.scope.label")});
+    final JPanel searchContextPanel = new JPanel(new BorderLayout());
+    searchContextPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+    JLabel searchContextLabel = new JLabel(FindBundle.message("find.context.combo.label"));
+    searchContextLabel.setLabelFor(mySearchContext);
+    JPanel panel = new JPanel();
+    panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+    panel.add(searchContextLabel);
+    panel.add(mySearchContext);
+    searchContextPanel.add(panel, BorderLayout.WEST);
 
     if (FindManagerImpl.ourHasSearchInCommentsAndLiterals) {
-      findOptionsPanel.add(myCbInCommentsOnly);
-      findOptionsPanel.add(myCbInStringLiteralsOnly);
+      findOptionsPanel.add(searchContextPanel);
     }
 
     ActionListener actionListener = new ActionListener() {
@@ -666,15 +664,10 @@ public class FindDialog extends DialogWrapper {
     final Component editorComponent = inputComboBox.getEditor().getEditorComponent();
 
     if (editorComponent instanceof EditorTextField) {
-      boolean selected = myCbRegularExpressions.isSelectedWhenSelectable();
-      @NonNls final String s = selected ? "*.regexp" : "*.txt";
-      FileType fileType = FileTypeManager.getInstance().getFileTypeByFileName(s);
-
-      if (selected && fileType == FileTypes.UNKNOWN) {
-        fileType = FileTypeManager.getInstance().getFileTypeByFileName("*.txt"); // RegExp plugin is not installed
-      }
-
-      final PsiFile file = PsiFileFactory.getInstance(myProject).createFileFromText(s, fileType, ((EditorTextField)editorComponent).getText(), -1, true);
+      boolean isRegexp = myCbRegularExpressions.isSelectedWhenSelectable();
+      FileType fileType = isRegexp ? RegExpFileType.INSTANCE : PlainTextFileType.INSTANCE;
+      String fileName = isRegexp ? "a.regexp" : "a.txt";
+      final PsiFile file = PsiFileFactory.getInstance(myProject).createFileFromText(fileName, fileType, ((EditorTextField)editorComponent).getText(), -1, true);
 
       ((EditorTextField)editorComponent).setNewDocumentAndFileType(fileType, PsiDocumentManager.getInstance(myProject).getDocument(file));
     }
@@ -766,7 +759,7 @@ public class FindDialog extends DialogWrapper {
     }
 
     Arrays.sort(names,String.CASE_INSENSITIVE_ORDER);
-    myModuleComboBox = new ComboBox(names, -1);
+    myModuleComboBox = new ComboBox(names);
     scopePanel.add(myModuleComboBox, gbConstraints);
 
     if (modules.length == 1) {
@@ -1004,9 +997,25 @@ public class FindDialog extends DialogWrapper {
     }
 
     model.setWholeWordsOnly(myCbWholeWordsOnly.isSelected());
-    model.setInStringLiteralsOnly(myCbInStringLiteralsOnly.isSelected());
 
-    model.setInCommentsOnly(myCbInCommentsOnly.isSelected());
+    String selectedSearchContextInUi = (String)mySearchContext.getSelectedItem();
+    FindModel.SearchContext searchContext = FindModel.SearchContext.ANY;
+    if (FindBundle.message("find.context.in.literals.scope.label").equals(selectedSearchContextInUi)) {
+      searchContext = FindModel.SearchContext.IN_STRING_LITERALS;
+    }
+    else if (FindBundle.message("find.context.in.comments.scope.label").equals(selectedSearchContextInUi)) {
+      searchContext = FindModel.SearchContext.IN_COMMENTS;
+    }
+    else if (FindBundle.message("find.context.except.comments.scope.label").equals(selectedSearchContextInUi)) {
+      searchContext = FindModel.SearchContext.EXCEPT_COMMENTS;
+    }
+    else if (FindBundle.message("find.context.except.literals.scope.label").equals(selectedSearchContextInUi)) {
+      searchContext = FindModel.SearchContext.EXCEPT_STRING_LITERALS;
+    } else if (FindBundle.message("find.context.except.comments.and.literals.scope.label").equals(selectedSearchContextInUi)) {
+      searchContext = FindModel.SearchContext.EXCEPT_COMMENTS_AND_STRING_LITERALS;
+    }
+
+    model.setSearchContext(searchContext);
 
     model.setRegularExpressions(myCbRegularExpressions.isSelected());
     String stringToFind = getStringToFind();
@@ -1072,8 +1081,14 @@ public class FindDialog extends DialogWrapper {
   private void initByModel() {
     myCbCaseSensitive.setSelected(myModel.isCaseSensitive());
     myCbWholeWordsOnly.setSelected(myModel.isWholeWordsOnly());
-    myCbInStringLiteralsOnly.setSelected(myModel.isInStringLiteralsOnly());
-    myCbInCommentsOnly.setSelected(myModel.isInCommentsOnly());
+    String searchContext = FindBundle.message("find.context.anywhere.scope.label");
+    if (myModel.isInCommentsOnly()) searchContext = FindBundle.message("find.context.in.comments.scope.label");
+    else if (myModel.isInStringLiteralsOnly()) searchContext = FindBundle.message("find.context.in.literals.scope.label");
+    else if (myModel.isExceptStringLiterals()) searchContext = FindBundle.message("find.context.except.literals.scope.label");
+    else if (myModel.isExceptComments()) searchContext = FindBundle.message("find.context.except.comments.scope.label");
+    else if (myModel.isExceptCommentsAndStringLiterals()) searchContext = FindBundle.message("find.context.except.comments.and.literals.scope.label");
+    mySearchContext.setSelectedItem(searchContext);
+
     myCbRegularExpressions.setSelected(myModel.isRegularExpressions());
 
     if (myModel.isMultipleFiles()) {

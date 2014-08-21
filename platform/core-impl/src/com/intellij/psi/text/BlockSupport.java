@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ public abstract class BlockSupport {
 
   @NotNull
   public abstract DiffLog reparseRange(@NotNull PsiFile file,
-                                       TextRange changedPsiRange,
+                                       @NotNull TextRange changedPsiRange,
                                        @NotNull CharSequence newText,
                                        @NotNull ProgressIndicator progressIndicator) throws IncorrectOperationException;
 
@@ -66,7 +66,7 @@ public abstract class BlockSupport {
 
   // maximal tree depth for which incremental reparse is allowed
   // if tree is deeper then it will be replaced completely - to avoid SOEs
-  public static final int INCREMENTAL_REPARSE_DEPTH_LIMIT = Registry.intValue("psi.incremental.reparse.depth.limit", 1000);
+  public static final int INCREMENTAL_REPARSE_DEPTH_LIMIT = Registry.intValue("psi.incremental.reparse.depth.limit");
 
   public static final Key<Boolean> TREE_DEPTH_LIMIT_EXCEEDED = Key.create("TREE_IS_TOO_DEEP");
 

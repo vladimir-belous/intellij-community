@@ -18,11 +18,15 @@ package git4idea;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Collections2;
+import com.intellij.ide.file.BatchFileChangeListener;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.DialogBuilder;
+import com.intellij.openapi.ui.ex.MultiLineLabel;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
@@ -30,13 +34,17 @@ import com.intellij.openapi.vcs.AbstractVcsHelper;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsException;
-import com.intellij.openapi.vcs.changes.FilePathsHelper;
+import com.intellij.openapi.vcs.changes.Change;
+import com.intellij.openapi.vcs.changes.ChangeListManager;
+import com.intellij.openapi.vcs.changes.ChangeListManagerEx;
 import com.intellij.openapi.vcs.versionBrowser.CommittedChangeList;
 import com.intellij.openapi.vcs.vfs.AbstractVcsVirtualFile;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Consumer;
 import com.intellij.util.Function;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.io.storage.HeavyProcessLatch;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.vcsUtil.VcsFileUtil;
 import com.intellij.vcsUtil.VcsUtil;
@@ -50,6 +58,7 @@ import git4idea.repo.GitBranchTrackInfo;
 import git4idea.repo.GitRemote;
 import git4idea.repo.GitRepository;
 import git4idea.repo.GitRepositoryManager;
+import git4idea.util.GitSimplePathsBrowser;
 import git4idea.util.GitUIUtil;
 import git4idea.util.StringScanner;
 import org.jetbrains.annotations.NotNull;
@@ -79,12 +88,6 @@ public class GitUtil {
       if (o2 == null) {
         return 1;
       }
-      if (o1.getPresentableUrl() == null) {
-        return -1;
-      }
-      if (o2.getPresentableUrl() == null) {
-        return 1;
-      }
       return o1.getPresentableUrl().compareTo(o2.getPresentableUrl());
     }
   };
@@ -99,7 +102,6 @@ public class GitUtil {
   public static final String DOT_GIT = ".git";
 
   private final static Logger LOG = Logger.getInstance(GitUtil.class);
-  private static final int SHORT_HASH_LENGTH = 8;
 
   public static final Predicate<GitBranchTrackInfo> NOT_NULL_PREDICATE = new Predicate<GitBranchTrackInfo>() {
     @Override
@@ -774,6 +776,8 @@ public class GitUtil {
   /**
    * Returns absolute paths which have changed remotely comparing to the current branch, i.e. performs
    * <code>git diff --name-only master..origin/master</code>
+   * <p/>
+   * Paths are absolute, Git-formatted (i.e. with forward slashes).
    */
   @NotNull
   public static Collection<String> getPathsDiffBetweenRefs(@NotNull Git git, @NotNull GitRepository repository,
@@ -793,7 +797,7 @@ public class GitUtil {
         continue;
       }
       final String path = repository.getRoot().getPath() + "/" + unescapePath(relative);
-      remoteChanges.add(FilePathsHelper.convertPath(path));
+      remoteChanges.add(path);
     }
     return remoteChanges;
   }
@@ -821,17 +825,6 @@ public class GitUtil {
         return remote.getName() + ": [" + StringUtil.join(remote.getUrls(), ", ") + "]";
       }
     }, "\n");
-  }
-
-  @NotNull
-  public static String getShortHash(@NotNull String hash) {
-    if (hash.length() == 0) return "";
-    if (hash.length() == 40) return hash.substring(0, SHORT_HASH_LENGTH);
-    if (hash.length() > 40)  // revision string encoded with date too
-    {
-      return hash.substring(hash.indexOf("[") + 1, SHORT_HASH_LENGTH);
-    }
-    return hash;
   }
 
   @NotNull
@@ -940,4 +933,94 @@ public class GitUtil {
     return !output.trim().isEmpty();
   }
 
+  @Nullable
+  public static VirtualFile findRefreshFileOrLog(@NotNull String absolutePath) {
+    VirtualFile file = LocalFileSystem.getInstance().findFileByPath(absolutePath);
+    if (file == null) {
+      file = LocalFileSystem.getInstance().refreshAndFindFileByPath(absolutePath);
+    }
+    if (file == null) {
+      LOG.warn("VirtualFile not found for " + absolutePath);
+    }
+    return file;
+  }
+
+  @NotNull
+  public static String toAbsolute(@NotNull VirtualFile root, @NotNull String relativePath) {
+    return StringUtil.trimEnd(root.getPath(), "/") + "/" + StringUtil.trimStart(relativePath, "/");
+  }
+
+  @NotNull
+  public static Collection<String> toAbsolute(@NotNull final VirtualFile root, @NotNull Collection<String> relativePaths) {
+    return ContainerUtil.map(relativePaths, new Function<String, String>() {
+      @Override
+      public String fun(String s) {
+        return toAbsolute(root, s);
+      }
+    });
+  }
+
+  /**
+   * Given the list of paths converts them to the list of {@link Change Changes} found in the {@link ChangeListManager},
+   * i.e. this works only for local changes. </br>
+   * Paths can be absolute or relative to the repository.
+   * If a path is not found in the local changes, it is ignored, but the fact is logged.
+   */
+  @NotNull
+  public static List<Change> findLocalChangesForPaths(@NotNull Project project, @NotNull VirtualFile root,
+                                                      @NotNull Collection<String> affectedPaths, boolean relativePaths) {
+    ChangeListManagerEx changeListManager = (ChangeListManagerEx)ChangeListManager.getInstance(project);
+    List<Change> affectedChanges = new ArrayList<Change>();
+    for (String path : affectedPaths) {
+      String absolutePath = relativePaths ? toAbsolute(root, path) : path;
+      VirtualFile file = findRefreshFileOrLog(absolutePath);
+      if (file != null) {
+        Change change = changeListManager.getChange(file);
+        if (change != null) {
+          affectedChanges.add(change);
+        }
+        else {
+          String message = "Change is not found for " + file.getPath();
+          if (changeListManager.isInUpdate()) {
+            message += " because ChangeListManager is being updated.";
+          }
+          LOG.warn(message);
+        }
+      }
+    }
+    return affectedChanges;
+  }
+
+  public static void showPathsInDialog(@NotNull Project project, @NotNull Collection<String> absolutePaths, @NotNull String title,
+                                       @Nullable String description) {
+    DialogBuilder builder = new DialogBuilder(project);
+    builder.setCenterPanel(new GitSimplePathsBrowser(project, absolutePaths));
+    if (description != null) {
+      builder.setNorthPanel(new MultiLineLabel(description));
+    }
+    builder.addOkAction();
+    builder.setTitle(title);
+    builder.show();
+  }
+
+  public static void workingTreeChangeStarted(@NotNull Project project) {
+    HeavyProcessLatch.INSTANCE.processStarted();
+    ApplicationManager.getApplication().getMessageBus().syncPublisher(BatchFileChangeListener.TOPIC).batchChangeStarted(project);
+  }
+
+  public static void workingTreeChangeFinished(@NotNull Project project) {
+    HeavyProcessLatch.INSTANCE.processFinished();
+    ApplicationManager.getApplication().getMessageBus().syncPublisher(BatchFileChangeListener.TOPIC).batchChangeCompleted(project);
+  }
+
+  @NotNull
+  public static String cleanupErrorPrefixes(@NotNull String msg) {
+    final String[] PREFIXES = { "fatal:", "error:" };
+    for (String prefix : PREFIXES) {
+      if (msg.startsWith(prefix)) {
+        return msg.substring(prefix.length()).trim();
+      }
+    }
+    return msg;
+  }
 }

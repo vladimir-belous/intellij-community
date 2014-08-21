@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,7 @@ package com.intellij.psi.impl;
 
 import com.intellij.AppTopics;
 import com.intellij.injected.editor.DocumentWindow;
-import com.intellij.injected.editor.EditorWindow;
-import com.intellij.openapi.application.ApplicationAdapter;
+import com.intellij.injected.editor.EditorWindowImpl;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.SettingsSavingComponent;
 import com.intellij.openapi.editor.Document;
@@ -33,7 +32,10 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectLocator;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.*;
+import com.intellij.psi.FileViewProvider;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiManager;
+import com.intellij.psi.SmartPointerManager;
 import com.intellij.psi.impl.source.PostprocessReformattingAspect;
 import com.intellij.util.FileContentUtil;
 import com.intellij.util.Processor;
@@ -50,6 +52,7 @@ import java.util.List;
 //todo listen & notifyListeners readonly events?
 public class PsiDocumentManagerImpl extends PsiDocumentManagerBase implements SettingsSavingComponent {
   private final DocumentCommitThread myDocumentCommitThread;
+  private final boolean myUnitTestMode = ApplicationManager.getApplication().isUnitTestMode();
 
   public PsiDocumentManagerImpl(@NotNull final Project project,
                                 @NotNull PsiManager psiManager,
@@ -78,25 +81,13 @@ public class PsiDocumentManagerImpl extends PsiDocumentManagerBase implements Se
         documentCommitThread.queueCommit(project, doc, "Bulk update finished");
       }
     });
-    ApplicationManager.getApplication().addApplicationListener(new ApplicationAdapter() {
-      @Override
-      public void beforeWriteActionStart(Object action) {
-        documentCommitThread.disable("Write action started: " + action);
-      }
-
-      @Override
-      public void writeActionFinished(Object action) {
-        documentCommitThread.enable("Write action finished: " + action);
-      }
-    }, project);
-    documentCommitThread.enable("project open");
   }
 
   @Nullable
   @Override
   public PsiFile getPsiFile(@NotNull Document document) {
     final PsiFile psiFile = super.getPsiFile(document);
-    if (ApplicationManager.getApplication().isUnitTestMode()) {
+    if (myUnitTestMode) {
       final VirtualFile virtualFile = FileDocumentManager.getInstance().getFile(document);
       if (virtualFile != null && virtualFile.isValid()) {
         Collection<Project> projects = ProjectLocator.getInstance().getProjectsForFile(virtualFile);
@@ -115,7 +106,7 @@ public class PsiDocumentManagerImpl extends PsiDocumentManagerBase implements Se
     super.documentChanged(event);
     // avoid documents piling up during batch processing
     if (FileDocumentManagerImpl.areTooManyDocumentsInTheQueue(myUncommittedDocuments)) {
-      if (ApplicationManager.getApplication().isUnitTestMode()) {
+      if (myUnitTestMode) {
         try {
           LOG.error("Too many uncommitted documents for " + myProject + ":\n" + myUncommittedDocuments);
         }
@@ -137,7 +128,7 @@ public class PsiDocumentManagerImpl extends PsiDocumentManagerBase implements Se
   protected boolean finishCommitInWriteAction(@NotNull Document document,
                                               @NotNull List<Processor<Document>> finishProcessors,
                                               boolean synchronously) {
-    EditorWindow.disposeInvalidEditors();  // in write action
+    EditorWindowImpl.disposeInvalidEditors();  // in write action
     return super.finishCommitInWriteAction(document, finishProcessors, synchronously);
   }
 

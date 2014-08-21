@@ -19,13 +19,17 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.util.containers.MultiMap;
+import org.jetbrains.idea.svn.SvnPropertyKeys;
 import org.jetbrains.idea.svn.SvnVcs;
 import org.jetbrains.idea.svn.history.SvnChangeList;
-import org.tmatesoft.svn.core.*;
+import org.jetbrains.idea.svn.info.Info;
+import org.jetbrains.idea.svn.properties.PropertyValue;
+import org.tmatesoft.svn.core.SVNException;
+import org.tmatesoft.svn.core.SVNMergeRange;
+import org.tmatesoft.svn.core.SVNMergeRangeList;
+import org.tmatesoft.svn.core.SVNURL;
 import org.tmatesoft.svn.core.internal.util.SVNMergeInfoUtil;
 import org.tmatesoft.svn.core.internal.util.SVNPathUtil;
-import org.tmatesoft.svn.core.wc.SVNInfo;
-import org.tmatesoft.svn.core.wc.SVNPropertyData;
 import org.tmatesoft.svn.core.wc.SVNRevision;
 import org.tmatesoft.svn.core.wc2.SvnTarget;
 
@@ -123,7 +127,7 @@ public class BranchInfo {
   }
 
   private SvnMergeInfoCache.MergeCheckResult checkAlive(final SvnChangeList list, final String branchPath) {
-    final SVNInfo info = getInfo(new File(branchPath));
+    final Info info = getInfo(new File(branchPath));
     if (info == null || info.getURL() == null || (! SVNPathUtil.isAncestor(myBranchUrl, info.getURL().toString()))) {
       return SvnMergeInfoCache.MergeCheckResult.NOT_MERGED;
     }
@@ -179,7 +183,7 @@ public class BranchInfo {
         // no paths in local copy
         return SvnMergeInfoCache.MergeCheckResult.NOT_EXISTS;
       }
-      final SVNInfo svnInfo = getInfo(new File(branchRootPath));
+      final Info svnInfo = getInfo(new File(branchRootPath));
       if (svnInfo == null || svnInfo.getRevision() == null || svnInfo.getURL() == null) {
         return SvnMergeInfoCache.MergeCheckResult.NOT_MERGED;
       }
@@ -205,11 +209,12 @@ public class BranchInfo {
       return SvnMergeInfoCache.MergeCheckResult.getInstance(mergeInfo.contains(revisionAsked));
     }
 
-    final SVNPropertyData mergeinfoProperty;
+    final PropertyValue mergeinfoProperty;
     SvnTarget target = SvnTarget.fromURL(branchUrl);
 
     try {
-      mergeinfoProperty = myVcs.getFactory(target).createPropertyClient().getProperty(target, SVNProperty.MERGE_INFO, false, SVNRevision.create(targetRevision));
+      mergeinfoProperty = myVcs.getFactory(target).createPropertyClient().getProperty(target, SvnPropertyKeys.MERGE_INFO, false,
+                                                                                      SVNRevision.create(targetRevision));
     }
     catch (VcsException e) {
       LOG.info(e);
@@ -235,10 +240,10 @@ public class BranchInfo {
       return goUpInRepo(revisionAsked, targetRevision, newBranchUrl, newTrunkUrl);
     }
     // process
-    return processMergeinfoProperty(keyString, revisionAsked, mergeinfoProperty.getValue(), trunkUrl, false);
+    return processMergeinfoProperty(keyString, revisionAsked, mergeinfoProperty, trunkUrl, false);
   }
 
-  private SVNInfo getInfo(final File pathFile) {
+  private Info getInfo(final File pathFile) {
     return myVcs.getInfo(pathFile);
   }
 
@@ -255,7 +260,7 @@ public class BranchInfo {
       }
     }
     
-    final SVNInfo svnInfo = getInfo(pathFile);
+    final Info svnInfo = getInfo(pathFile);
     if (svnInfo == null || svnInfo.getRevision() == null || svnInfo.getURL() == null) {
       LOG.info("Svninfo for " + pathFile + " is null or not full.");
       return SvnMergeInfoCache.MergeCheckResult.NOT_MERGED;
@@ -277,19 +282,19 @@ public class BranchInfo {
       return SvnMergeInfoCache.MergeCheckResult.getInstance(merged);
     }
 
-    final SVNPropertyData mergeinfoProperty;
+    final PropertyValue mergeinfoProperty;
     try {
       if (actualRevision == targetRevisionCorrected) {
         // look in WC
         SvnTarget target = SvnTarget.fromFile(pathFile, SVNRevision.WORKING);
         mergeinfoProperty =
-          myVcs.getFactory(target).createPropertyClient().getProperty(target, SVNProperty.MERGE_INFO, false, SVNRevision.WORKING);
+          myVcs.getFactory(target).createPropertyClient().getProperty(target, SvnPropertyKeys.MERGE_INFO, false, SVNRevision.WORKING);
       } else {
         // in repo
         myMixedRevisionsFound = true;
         SvnTarget target = SvnTarget.fromURL(svnInfo.getURL());
         mergeinfoProperty = myVcs.getFactory(target).createPropertyClient()
-          .getProperty(target, SVNProperty.MERGE_INFO, false, SVNRevision.create(targetRevisionCorrected));
+          .getProperty(target, SvnPropertyKeys.MERGE_INFO, false, SVNRevision.create(targetRevisionCorrected));
       }
     }
     catch (VcsException e) {
@@ -302,11 +307,11 @@ public class BranchInfo {
       return goUp(revisionAsked, targetRevisionCorrected, branchRootPath, path, trunkUrl);
     }
     // process
-    return processMergeinfoProperty(keyString, revisionAsked, mergeinfoProperty.getValue(), trunkUrl, self);
+    return processMergeinfoProperty(keyString, revisionAsked, mergeinfoProperty, trunkUrl, self);
   }
 
   private SvnMergeInfoCache.MergeCheckResult processMergeinfoProperty(final String pathWithRevisionNumber, final long revisionAsked,
-                                                                      final SVNPropertyValue value, final String trunkRelativeUrl,
+                                                                      final PropertyValue value, final String trunkRelativeUrl,
                                                                       final boolean self) {
     final String valueAsString = value.toString().trim();
 
@@ -318,7 +323,7 @@ public class BranchInfo {
 
     final Map<String, SVNMergeRangeList> map;
     try {
-      map = SVNMergeInfoUtil.parseMergeInfo(new StringBuffer(replaceSeparators(value.getString())), null);
+      map = SVNMergeInfoUtil.parseMergeInfo(new StringBuffer(replaceSeparators(value.toString())), null);
     }
     catch (SVNException e) {
       LOG.info(e);

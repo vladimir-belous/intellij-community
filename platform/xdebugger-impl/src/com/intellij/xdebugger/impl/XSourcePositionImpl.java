@@ -85,7 +85,7 @@ public class XSourcePositionImpl implements XSourcePosition {
       offset = -1;
     }
     else {
-      Document document = FileDocumentManager.getInstance().getDocument(file);
+      Document document = file.isValid() ? FileDocumentManager.getInstance().getDocument(file) : null;
       if (document == null) {
         return null;
       }
@@ -107,5 +107,10 @@ public class XSourcePositionImpl implements XSourcePosition {
   @NotNull
   public static OpenFileDescriptor createOpenFileDescriptor(@NotNull Project project, @NotNull XSourcePosition position) {
     return position.getOffset() != -1 ? new OpenFileDescriptor(project, position.getFile(), position.getOffset()) : new OpenFileDescriptor(project, position.getFile(), position.getLine(), 0);
+  }
+
+  @Override
+  public String toString() {
+    return "XSourcePositionImpl[" + myFile + ":" + myLine + "(" + myOffset + ")]";
   }
 }

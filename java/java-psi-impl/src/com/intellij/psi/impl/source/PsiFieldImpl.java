@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -128,15 +128,12 @@ public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements Ps
   public PsiType getType() {
     final PsiFieldStub stub = getStub();
     if (stub != null) {
-      SoftReference<PsiType> cachedType = myCachedType;
-      if (cachedType != null) {
-        PsiType type = cachedType.get();
-        if (type != null) return type;
-      }
+      PsiType type = SoftReference.dereference(myCachedType);
+      if (type != null) return type;
 
       String typeText = TypeInfo.createTypeText(stub.getType(true));
       try {
-        final PsiType type = JavaPsiFacade.getInstance(getProject()).getParserFacade().createTypeFromText(typeText, this);
+        type = JavaPsiFacade.getInstance(getProject()).getParserFacade().createTypeFromText(typeText, this);
         myCachedType = new SoftReference<PsiType>(type);
         return type;
       }
@@ -253,7 +250,7 @@ public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements Ps
     private static final OurConstValueComputer INSTANCE = new OurConstValueComputer();
 
     @Override
-    public Object execute(PsiVariable variable, Set<PsiVariable> visitedVars) {
+    public Object execute(@NotNull PsiVariable variable, Set<PsiVariable> visitedVars) {
       return ((PsiFieldImpl)variable)._computeConstantValue(visitedVars);
     }
   }

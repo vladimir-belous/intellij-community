@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,11 +29,14 @@ public abstract class GroupedElementsRenderer {
   public static final Color POPUP_SEPARATOR_TEXT_FOREGROUND = Color.gray;
   public static final Color SELECTED_FRAME_FOREGROUND = Color.black;
 
-  protected SeparatorWithText mySeparatorComponent = new SeparatorWithText();
+  protected SeparatorWithText mySeparatorComponent = createSeparator();
+
+  protected abstract JComponent createItemComponent();
+
   protected JComponent myComponent;
   protected MyComponent myRendererComponent;
 
-  protected ErrorLabel myTextLabel;
+  protected JLabel myTextLabel;
 
 
   public GroupedElementsRenderer() {
@@ -46,7 +49,9 @@ public abstract class GroupedElementsRenderer {
 
   protected abstract void layout();
 
-  protected abstract JComponent createItemComponent();
+  protected SeparatorWithText createSeparator() {
+    return new SeparatorWithText();
+  }
 
   protected final JComponent configureComponent(String text, String tooltip, Icon icon, Icon disabledIcon, boolean isSelected, boolean hasSeparatorAbove, String separatorTextAbove, int preferredForcedWidth) {
     mySeparatorComponent.setVisible(hasSeparatorAbove);
@@ -58,14 +63,16 @@ public abstract class GroupedElementsRenderer {
 
     myTextLabel.setIcon(icon);
     myTextLabel.setDisabledIcon(disabledIcon);
+    if (myTextLabel instanceof EngravedLabel) {
+      ((EngravedLabel)myTextLabel).setShadowColor(isSelected ? UIUtil.getTreeSelectionBackground() : null);
+    }
 
     if (isSelected) {
-      myComponent.setBorder(getSelectedBorder());
+      //myComponent.setBorder(getSelectedBorder());
       setSelected(myComponent);
       setSelected(myTextLabel);
-    }
-    else {
-      myComponent.setBorder(getBorder());
+    } else {
+      //myComponent.setBorder(getBorder());
       setDeselected(myComponent);
       setDeselected(myTextLabel);
     }
@@ -96,7 +103,7 @@ public abstract class GroupedElementsRenderer {
   }
 
 
-  protected final  void setDeselected(JComponent aComponent) {
+  protected final void setDeselected(JComponent aComponent) {
     aComponent.setBackground(getBackground());
     aComponent.setForeground(getForeground());
   }
@@ -123,7 +130,7 @@ public abstract class GroupedElementsRenderer {
 
   public abstract static class List extends GroupedElementsRenderer {
     @Override
-    protected final void layout() {
+    protected void layout() {
       myRendererComponent.add(mySeparatorComponent, BorderLayout.NORTH);
       myRendererComponent.add(myComponent, BorderLayout.CENTER);
     }
@@ -139,12 +146,12 @@ public abstract class GroupedElementsRenderer {
     }
 
     @Override
-    protected final Color getBackground() {
+    protected Color getBackground() {
       return UIUtil.getListBackground();
     }
 
     @Override
-    protected final Color getForeground() {
+    protected Color getForeground() {
       return UIUtil.getListForeground();
     }
   }

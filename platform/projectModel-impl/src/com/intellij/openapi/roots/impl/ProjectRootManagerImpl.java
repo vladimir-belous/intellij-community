@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,7 +66,6 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
   private String myProjectSdkName;
   private String myProjectSdkType;
 
-  private long myModificationCount = 0;
   @NonNls private static final String ATTRIBUTE_VERSION = "version";
 
   private final OrderRootsCache myRootsCache;
@@ -132,8 +131,7 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
     return (ProjectRootManagerImpl)getInstance(project);
   }
 
-  public ProjectRootManagerImpl(Project project,
-                                DirectoryIndex directoryIndex) {
+  public ProjectRootManagerImpl(Project project) {
     myProject = project;
     myRootsCache = new OrderRootsCache(project);
   }
@@ -143,8 +141,6 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
   public ProjectFileIndex getFileIndex() {
     return ProjectFileIndex.SERVICE.getInstance(myProject);
   }
-
-  private final Map<ModuleRootListener, MessageBusConnection> myListenerAdapters = new HashMap<ModuleRootListener, MessageBusConnection>();
 
   @Override
   @NotNull
@@ -356,9 +352,9 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
   }
 
   @Override
-  public void makeRootsChange(@NotNull Runnable runnable, boolean filetypes, boolean fireEvents) {
+  public void makeRootsChange(@NotNull Runnable runnable, boolean fileTypes, boolean fireEvents) {
     if (myProject.isDisposed()) return;
-    BatchSession session = getBatchSession(filetypes);
+    BatchSession session = getBatchSession(fileTypes);
     if (fireEvents) session.beforeRootsChanged();
     try {
       runnable.run();
@@ -368,19 +364,19 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
     }
   }
 
-  protected BatchSession getBatchSession(final boolean filetypes) {
-    return filetypes ? myFileTypesChanged : myRootsChanged;
+  protected BatchSession getBatchSession(final boolean fileTypes) {
+    return fileTypes ? myFileTypesChanged : myRootsChanged;
   }
 
   protected boolean isFiringEvent = false;
 
-  private boolean fireBeforeRootsChanged(boolean filetypes) {
+  private boolean fireBeforeRootsChanged(boolean fileTypes) {
     ApplicationManager.getApplication().assertWriteAccessAllowed();
 
     LOG.assertTrue(!isFiringEvent, "Do not use API that changes roots from roots events. Try using invoke later or something else.");
 
     if (myMergedCallStarted) {
-      LOG.assertTrue(!filetypes, "Filetypes change is not supported inside merged call");
+      LOG.assertTrue(!fileTypes, "File types change is not supported inside merged call");
     }
 
     if (myRootsChangesDepth++ == 0) {
@@ -388,17 +384,17 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
         myMergedCallHasRootChange = true;
         myRootsChangesDepth++; // blocks all firing until finishRootsChangedOnDemand
       }
-      fireBeforeRootsChangeEvent(filetypes);
+      fireBeforeRootsChangeEvent(fileTypes);
       return true;
     }
 
     return false;
   }
 
-  protected void fireBeforeRootsChangeEvent(boolean filetypes) {
+  protected void fireBeforeRootsChangeEvent(boolean fileTypes) {
   }
 
-  private boolean fireRootsChanged(boolean filetypes) {
+  private boolean fireRootsChanged(boolean fileTypes) {
     if (myProject.isDisposed()) return false;
 
     ApplicationManager.getApplication().assertWriteAccessAllowed();
@@ -406,7 +402,7 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
     LOG.assertTrue(!isFiringEvent, "Do not use API that changes roots from roots events. Try using invoke later or something else.");
 
     if (myMergedCallStarted) {
-      LOG.assertTrue(!filetypes, "Filetypes change is not supported inside merged call");
+      LOG.assertTrue(!fileTypes, "File types change is not supported inside merged call");
     }
 
     myRootsChangesDepth--;
@@ -418,13 +414,13 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
 
     clearScopesCaches();
 
-    myModificationCount++;
+    incModificationCount();
 
     PsiManager psiManager = PsiManager.getInstance(myProject);
     psiManager.dropResolveCaches();
     ((PsiModificationTrackerImpl)psiManager.getModificationTracker()).incCounter();
 
-    fireRootsChangedEvent(filetypes);
+    fireRootsChangedEvent(fileTypes);
 
     doSynchronizeRoots();
 
@@ -433,7 +429,7 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
     return true;
   }
 
-  protected void fireRootsChangedEvent(boolean filetypes) {
+  protected void fireRootsChangedEvent(boolean fileTypes) {
   }
 
   protected void addRootsToWatch() {
@@ -525,7 +521,7 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
 
     @Override
     public void afterLibraryAdded(final Library newLibrary) {
-      myModificationCount++;
+      incModificationCount();
       mergeRootsChangesDuring(new Runnable() {
         @Override
         public void run() {
@@ -538,7 +534,7 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
 
     @Override
     public void afterLibraryRenamed(final Library library) {
-      myModificationCount++;
+      incModificationCount();
       mergeRootsChangesDuring(new Runnable() {
         @Override
         public void run() {
@@ -551,7 +547,7 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
 
     @Override
     public void beforeLibraryRemoved(final Library library) {
-      myModificationCount++;
+      incModificationCount();
       mergeRootsChangesDuring(new Runnable() {
         @Override
         public void run() {
@@ -564,7 +560,7 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
 
     @Override
     public void afterLibraryRemoved(final Library library) {
-      myModificationCount++;
+      incModificationCount();
       mergeRootsChangesDuring(new Runnable() {
         @Override
         public void run() {
@@ -674,10 +670,5 @@ public class ProjectRootManagerImpl extends ProjectRootManagerEx implements Proj
         myInsideRootsChange = false;
       }
     }
-  }
-
-  @Override
-  public long getModificationCount() {
-    return myModificationCount;
   }
 }

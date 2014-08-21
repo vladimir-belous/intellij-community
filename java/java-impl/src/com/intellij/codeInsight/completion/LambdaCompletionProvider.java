@@ -16,13 +16,18 @@
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.ExpectedTypeInfo;
+import com.intellij.codeInsight.generation.GenerateMembersUtil;
 import com.intellij.codeInsight.lookup.AutoCompletionPolicy;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorModificationUtil;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
+import com.intellij.psi.codeStyle.CodeStyleManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.impl.source.resolve.graphInference.FunctionalInterfaceParameterizationUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.Function;
 import com.intellij.util.ProcessingContext;
@@ -40,16 +45,33 @@ public class LambdaCompletionProvider extends CompletionProvider<CompletionParam
     final ExpectedTypeInfo[] expectedTypes = JavaSmartCompletionContributor.getExpectedTypes(parameters);
     for (ExpectedTypeInfo expectedType : expectedTypes) {
       final PsiType defaultType = expectedType.getDefaultType();
-      if (LambdaHighlightingUtil.checkInterfaceFunctional(defaultType) == null) {
-        final PsiMethod method = LambdaUtil.getFunctionalInterfaceMethod(defaultType);
+      if (LambdaUtil.isFunctionalType(defaultType)) {
+        final PsiType functionalInterfaceType = FunctionalInterfaceParameterizationUtil.getGroundTargetType(defaultType);
+        final PsiMethod method = LambdaUtil.getFunctionalInterfaceMethod(functionalInterfaceType);
         if (method != null) {
-          final PsiParameter[] params = method.getParameterList().getParameters();
-          final String paramsString = "(" + StringUtil.join(params, new Function<PsiParameter, String>() {
+          PsiParameter[] params = method.getParameterList().getParameters();
+          final Project project = method.getProject();
+          final PsiElement originalPosition = parameters.getOriginalPosition();
+          final JVMElementFactory jvmElementFactory = originalPosition != null ? JVMElementFactories.getFactory(originalPosition.getLanguage(), project) : null;
+          final JavaCodeStyleManager javaCodeStyleManager = JavaCodeStyleManager.getInstance(project);
+          if (jvmElementFactory != null) {
+            final PsiSubstitutor substitutor = LambdaUtil.getSubstitutor(method, PsiUtil.resolveGenericsClassInType(functionalInterfaceType));
+            params = GenerateMembersUtil.overriddenParameters(params, jvmElementFactory, javaCodeStyleManager, substitutor, originalPosition);
+          }
+
+          String paramsString =
+            params.length == 1 ? getParamName(params[0], javaCodeStyleManager, originalPosition) : "(" + StringUtil.join(params, new Function<PsiParameter, String>() {
             @Override
             public String fun(PsiParameter parameter) {
-              return parameter.getName();
+              return getParamName(parameter, javaCodeStyleManager, originalPosition);
             }
-          }, ",") + ")";
+            }, ",") + ")";
+
+          final CodeStyleManager codeStyleManager = CodeStyleManager.getInstance(project);
+          PsiLambdaExpression lambdaExpression = (PsiLambdaExpression)JavaPsiFacade.getElementFactory(project)
+            .createExpressionFromText(paramsString + " -> {}", null);
+          lambdaExpression = (PsiLambdaExpression)codeStyleManager.reformat(lambdaExpression);
+          paramsString = lambdaExpression.getParameterList().getText();
           final LookupElementBuilder builder =
             LookupElementBuilder.create(paramsString).withPresentableText(paramsString + " -> {}").withInsertHandler(new InsertHandler<LookupElement>() {
               @Override
@@ -62,5 +84,9 @@ public class LambdaCompletionProvider extends CompletionProvider<CompletionParam
         }
       }
     }
+  }
+
+  private static String getParamName(PsiParameter param, JavaCodeStyleManager javaCodeStyleManager, PsiElement originalPosition) {
+    return javaCodeStyleManager.suggestUniqueVariableName(param.getName(), originalPosition, true);
   }
 }

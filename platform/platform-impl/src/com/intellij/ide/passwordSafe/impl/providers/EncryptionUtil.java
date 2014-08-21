@@ -15,10 +15,13 @@
  */
 package com.intellij.ide.passwordSafe.impl.providers;
 
+import org.jetbrains.annotations.NotNull;
+
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.UnsupportedEncodingException;
+import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
@@ -114,14 +117,14 @@ public class EncryptionUtil {
    * @param rawKey   the raw key to encrypt
    * @return the encrypted key
    */
-  public static byte[] encryptKey(byte[] password, byte[] rawKey) {
+  public static byte[] encryptKey(@NotNull byte[] password, byte[] rawKey) {
     try {
       Cipher c = Cipher.getInstance(ENCRYPT_KEY_ALGORITHM);
       c.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(password, SECRET_KEY_ALGORITHM), CBC_SALT_KEY);
       return c.doFinal(rawKey);
     }
-    catch (Exception e) {
-      throw new IllegalStateException(ENCRYPT_KEY_ALGORITHM + " is not available", e);
+    catch (GeneralSecurityException e) {
+      throw new IllegalStateException(e.getMessage(), e);
     }
   }
 
@@ -129,12 +132,12 @@ public class EncryptionUtil {
    * Create encrypted db key
    *
    * @param password  the password to protect the key
-   * @param requester the requester for the key
-   * @param key       the key within requester
+   * @param requestor the requestor for the key
+   * @param key       the key within requestor
    * @return the key to use in the database
    */
-  public static byte[] dbKey(byte[] password, Class requester, String key) {
-    return encryptKey(password, rawKey(requester, key));
+  public static byte[] dbKey(@NotNull byte[] password, Class requestor, String key) {
+    return encryptKey(password, rawKey(requestor, key));
   }
 
 

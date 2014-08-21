@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,6 +44,7 @@ import java.util.List;
  */
 public class Splash extends JDialog implements StartupProgress {
   @Nullable public static Rectangle BOUNDS;
+
   private final Icon myImage;
   private int myProgressHeight = 2;
   private Color myProgressColor = null;
@@ -58,7 +59,9 @@ public class Splash extends JDialog implements StartupProgress {
     super((Frame)null, false);
 
     setUndecorated(true);
-    setResizable(false);
+    if (!(SystemInfo.isLinux && SystemInfo.isJavaVersionAtLeast("1.7"))) {
+      setResizable(false);
+    }
     setFocusableWindowState(false);
 
     Icon originalImage = IconLoader.getIcon(imageName);
@@ -78,8 +81,20 @@ public class Splash extends JDialog implements StartupProgress {
     Dimension size = getPreferredSize();
     setSize(size);
     pack();
-    setLocationRelativeTo(null);
-    UIUtil.setAutoRequestFocus(this, false);
+    setLocationInTheCenterOfScreen();
+  }
+
+  private void setLocationInTheCenterOfScreen() {
+    Rectangle bounds = getGraphicsConfiguration().getBounds();
+    if (SystemInfo.isWindows) {
+      Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(getGraphicsConfiguration());
+      int x = insets.left + (bounds.width - insets.left - insets.right - getWidth()) / 2;
+      int y = insets.top + (bounds.height - insets.top - insets.bottom - getHeight()) / 2;
+      setLocation(x, y);
+    }
+    else {
+      setLocation((bounds.width - getWidth()) / 2, (bounds.height - getHeight()) / 2);
+    }
   }
 
   public Splash(ApplicationInfoEx info) {
@@ -154,9 +169,9 @@ public class Splash extends JDialog implements StartupProgress {
         g.setColor(textColor);
         final String licensedToMessage = provider.getLicensedToMessage();
         final List<String> licenseRestrictionsMessages = provider.getLicenseRestrictionsMessages();
-        g.drawString(licensedToMessage, x + 21, y + height - 49);
+        g.drawString(licensedToMessage, x + 15, y + height - 30);
         if (licenseRestrictionsMessages.size() > 0) {
-          g.drawString(licenseRestrictionsMessages.get(0), x + 21, y + height - 33);
+          g.drawString(licenseRestrictionsMessages.get(0), x + 15, y + height - 14);
         }
       }
       return true;

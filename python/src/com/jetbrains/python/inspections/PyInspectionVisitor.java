@@ -52,7 +52,7 @@ public abstract class PyInspectionVisitor extends PyElementVisitor {
     myTypeEvalContext = context;
   }
 
-  protected PyResolveContext resolveWithoutImplicits() {
+  protected PyResolveContext getResolveContext() {
     return PyResolveContext.noImplicits().withTypeEvalContext(myTypeEvalContext);
   }
 
@@ -78,12 +78,12 @@ public abstract class PyInspectionVisitor extends PyElementVisitor {
 
   protected final void registerProblem(@Nullable final PsiElement element,
                                        @NotNull final String message,
-                                       @NotNull final LocalQuickFix quickFix) {
+                                       @NotNull final LocalQuickFix... quickFixes) {
     if (element == null || element.getTextLength() == 0) {
       return;
     }
     if (myHolder != null) {
-      myHolder.registerProblem(element, message, quickFix);
+      myHolder.registerProblem(element, message, quickFixes);
     }
   }
 

@@ -399,6 +399,16 @@ public class PyTypeTest extends PyTestCase {
                                   "expr = x.start\n");
     TypeEvalContext context = getTypeEvalContext(expr);
     PyType actual = context.getType(expr);
+    assertNotNull(actual);
+    assertInstanceOf(actual, PyClassType.class);
+    assertEquals("int", actual.getName());
+  }
+
+  public void testUndefinedPropertyOfUnionType() {
+    PyExpression expr = parseExpr("x = 42 if True else 'spam'\n" +
+                                  "expr = x.foo\n");
+    TypeEvalContext context = getTypeEvalContext(expr);
+    PyType actual = context.getType(expr);
     assertNull(actual);
   }
 
@@ -803,6 +813,26 @@ public class PyTypeTest extends PyTestCase {
     doTest("int",
            "xs = [1, 2, 3]\n" +
            "expr = iter(xs).next()\n");
+  }
+
+  // PY-10967
+  public void testDefaultTupleParameterMember() {
+    doTest("int",
+           "def foo(xs=(1, 2)):\n" +
+           "  expr, foo = xs\n");
+  }
+
+  public void testTupleIterationType() {
+    doTest("int | str",
+           "xs = (1, 'a')\n" +
+           "for expr in xs:\n" +
+           "    pass\n");
+  }
+
+  // PY-12801
+  public void testTupleConcatenation() {
+    doTest("(int, bool, str)",
+           "expr = (1,) + (True, 'spam') + ()");
   }
 
   private static TypeEvalContext getTypeEvalContext(@NotNull PyExpression element) {

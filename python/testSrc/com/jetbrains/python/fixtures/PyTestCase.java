@@ -15,19 +15,27 @@
  */
 package com.jetbrains.python.fixtures;
 
+import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInspection.LocalQuickFix;
+import com.intellij.codeInspection.ex.QuickFixWrapper;
+import com.intellij.find.findUsages.CustomUsageSearcher;
+import com.intellij.find.findUsages.FindUsagesOptions;
 import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.module.EmptyModuleType;
+import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ContentEntry;
 import com.intellij.openapi.roots.ModifiableRootModel;
 import com.intellij.openapi.roots.OrderRootType;
+import com.intellij.openapi.roots.impl.FilePropertyPusher;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
+import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiReference;
+import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.testFramework.LightProjectDescriptor;
 import com.intellij.testFramework.PlatformTestCase;
 import com.intellij.testFramework.TestDataPath;
@@ -37,10 +45,16 @@ import com.intellij.testFramework.fixtures.IdeaProjectTestFixture;
 import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory;
 import com.intellij.testFramework.fixtures.TestFixtureBuilder;
 import com.intellij.testFramework.fixtures.impl.LightTempDirTestFixtureImpl;
+import com.intellij.usageView.UsageInfo;
+import com.intellij.usages.Usage;
+import com.intellij.usages.rules.PsiElementUsage;
+import com.intellij.util.CommonProcessors.CollectProcessor;
 import com.jetbrains.python.PythonHelpersLocator;
 import com.jetbrains.python.PythonMockSdk;
+import com.jetbrains.python.PythonModuleTypeBase;
 import com.jetbrains.python.PythonTestUtil;
 import com.jetbrains.python.psi.LanguageLevel;
+import com.jetbrains.python.psi.PyClass;
 import com.jetbrains.python.psi.PyFile;
 import com.jetbrains.python.psi.impl.PyFileImpl;
 import com.jetbrains.python.psi.impl.PythonLanguageLevelPusher;
@@ -48,6 +62,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 
 /**
  * @author yole
@@ -91,6 +108,8 @@ public abstract class PyTestCase extends UsefulTestCase {
     setLanguageLevel(null);
     myFixture.tearDown();
     myFixture = null;
+    final PythonLanguageLevelPusher levelPusher = Extensions.findExtension(FilePropertyPusher.EP_NAME, PythonLanguageLevelPusher.class);
+    levelPusher.flushLanguageLevelCache();
     super.tearDown();
   }
 
@@ -126,8 +145,83 @@ public abstract class PyTestCase extends UsefulTestCase {
     }
   }
 
-  protected static void assertNotParsed(PyFile file) {
-    assertNull(PARSED_ERROR_MSG, ((PyFileImpl)file).getTreeElement());
+  /**
+   * Searches for quickfix itetion by its class
+   * @param clazz quick fix class
+   * @param <T> quick fix class
+   * @return quick fix or null if nothing found
+   */
+  @Nullable
+  public <T extends LocalQuickFix> T findQuickFixByClassInIntentions(@NotNull final Class<T> clazz) {
+
+    for (final IntentionAction action : myFixture.getAvailableIntentions()) {
+      if ((action instanceof QuickFixWrapper)) {
+        final QuickFixWrapper quickFixWrapper = (QuickFixWrapper)action;
+        final LocalQuickFix fix = quickFixWrapper.getFix();
+        if (clazz.isInstance(fix)) {
+          @SuppressWarnings("unchecked")
+          final T result = (T)fix;
+          return result;
+        }
+      }
+    }
+    return null;
+  }
+
+
+    protected static void assertNotParsed(PyFile file) {
+      assertNull(PARSED_ERROR_MSG, ((PyFileImpl)file).getTreeElement());
+  }
+
+  /**
+   * @param name
+   * @return class by its name from file
+   */
+  @NotNull
+  protected PyClass getClassByName(@NotNull final String name) {
+    return myFixture.findElementByText("class " + name, PyClass.class);
+  }
+
+  /**
+   * Finds some text and moves cursor to it (if found)
+   *
+   * @param testToFind text to find
+   * @throws AssertionError if element not found
+   */
+  protected void moveByText(@NotNull final String testToFind) {
+    final PsiElement element = myFixture.findElementByText(testToFind, PsiElement.class);
+    assert element != null : "No element found by text: " + testToFind;
+    myFixture.getEditor().getCaretModel().moveToOffset(element.getTextOffset());
+  }
+
+  /**
+   * Finds all usages of element. Works much like method in {@link com.intellij.testFramework.fixtures.CodeInsightTestFixture#findUsages(com.intellij.psi.PsiElement)},
+   * but supports {@link com.intellij.find.findUsages.CustomUsageSearcher} and {@link com.intellij.psi.search.searches.ReferencesSearch} as well
+   *
+   * @param element what to find
+   * @return usages
+   */
+  @NotNull
+  protected Collection<PsiElement> findUsage(@NotNull final PsiElement element) {
+    final Collection<PsiElement> result = new ArrayList<PsiElement>();
+    final CollectProcessor<Usage> usageCollector = new CollectProcessor<Usage>();
+    for (final CustomUsageSearcher searcher : CustomUsageSearcher.EP_NAME.getExtensions()) {
+      searcher.processElementUsages(element, usageCollector, new FindUsagesOptions(myFixture.getProject()));
+    }
+    for (final Usage usage : usageCollector.getResults()) {
+      if (usage instanceof PsiElementUsage) {
+        result.add(((PsiElementUsage)usage).getElement());
+      }
+    }
+    for (final PsiReference reference : ReferencesSearch.search(element).findAll()) {
+      result.add(reference.getElement());
+    }
+
+    for (final UsageInfo info : myFixture.findUsages(element)) {
+      result.add(info.getElement());
+    }
+
+    return result;
   }
 
   protected static class PyLightProjectDescriptor implements LightProjectDescriptor {
@@ -139,7 +233,7 @@ public abstract class PyTestCase extends UsefulTestCase {
 
     @Override
     public ModuleType getModuleType() {
-      return EmptyModuleType.getInstance();
+      return PythonModuleTypeBase.getInstance();
     }
 
     @Override

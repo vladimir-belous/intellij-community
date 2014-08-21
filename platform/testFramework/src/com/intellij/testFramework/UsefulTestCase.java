@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,15 +22,15 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.command.CommandProcessor;
+import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.command.impl.StartMarkAction;
-import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.io.FileSystemUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileVisitor;
@@ -42,22 +42,25 @@ import com.intellij.psi.impl.source.PostprocessReformattingAspect;
 import com.intellij.refactoring.rename.inplace.InplaceRefactoring;
 import com.intellij.rt.execution.junit.FileComparisonFailure;
 import com.intellij.testFramework.exceptionCases.AbstractExceptionCase;
-import com.intellij.util.Consumer;
-import com.intellij.util.Function;
-import com.intellij.util.Processor;
-import com.intellij.util.ReflectionUtil;
+import com.intellij.util.*;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
 import gnu.trove.THashSet;
-import junit.framework.*;
+import junit.framework.AssertionFailedError;
+import junit.framework.Test;
+import junit.framework.TestCase;
+import junit.framework.TestSuite;
 import org.intellij.lang.annotations.RegExp;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.junit.Assert;
 
+import javax.swing.Timer;
 import java.awt.*;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -66,6 +69,9 @@ import java.lang.reflect.Modifier;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.DelayQueue;
+import java.util.concurrent.Delayed;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
@@ -73,6 +79,8 @@ import java.util.regex.Pattern;
  */
 @SuppressWarnings("UseOfSystemOutOrSystemErr")
 public abstract class UsefulTestCase extends TestCase {
+  public static final boolean IS_UNDER_TEAMCITY = System.getenv("TEAMCITY_VERSION") != null;
+
   public static final String IDEA_MARKER_CLASS = "com.intellij.openapi.components.impl.stores.IdeaProjectStoreImpl";
   public static final String TEMP_DIR_MARKER = "unitTest_";
 
@@ -130,8 +138,7 @@ public abstract class UsefulTestCase extends TestCase {
       myTempDir = FileUtil.toSystemDependentName(ORIGINAL_TEMP_DIR + "/" + TEMP_DIR_MARKER + testName + "_"+ RNG.nextInt(1000));
       FileUtil.resetCanonicalTempPathCache(myTempDir);
     }
-    //noinspection AssignmentToStaticFieldFromInstanceMethod
-    DocumentImpl.CHECK_DOCUMENT_CONSISTENCY = !isPerformanceTest();
+    ApplicationInfoImpl.setInPerformanceTest(isPerformanceTest());
   }
 
   @Override
@@ -167,13 +174,14 @@ public abstract class UsefulTestCase extends TestCase {
   private static final Set<String> DELETE_ON_EXIT_HOOK_DOT_FILES;
   private static final Class DELETE_ON_EXIT_HOOK_CLASS;
   static {
-    Class<?> aClass = null;
-    Set<String> files = null;
+    Class<?> aClass;
     try {
       aClass = Class.forName("java.io.DeleteOnExitHook");
-      files = ReflectionUtil.getField(aClass, null, Set.class, "files");
     }
-    catch (Exception ignored) { }
+    catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+    Set<String> files = ReflectionUtil.getField(aClass, null, Set.class, "files");
     DELETE_ON_EXIT_HOOK_CLASS = aClass;
     DELETE_ON_EXIT_HOOK_DOT_FILES = files;
   }
@@ -196,38 +204,26 @@ public abstract class UsefulTestCase extends TestCase {
   }
 
   private static void cleanupSwingDataStructures() throws Exception {
-    Class<?> aClass = Class.forName("javax.swing.KeyboardManager");
-
-    Method get = aClass.getMethod("getCurrentManager");
-    get.setAccessible(true);
-    Object manager = get.invoke(null);
-    {
-      Field mapF = aClass.getDeclaredField("componentKeyStrokeMap");
-      mapF.setAccessible(true);
-      Object map = mapF.get(manager);
-      ((Map)map).clear();
-    }
-    {
-      Field mapF = aClass.getDeclaredField("containerMap");
-      mapF.setAccessible(true);
-      Object map = mapF.get(manager);
-      ((Map)map).clear();
-    }
+    Object manager = ReflectionUtil.getDeclaredMethod(Class.forName("javax.swing.KeyboardManager"), "getCurrentManager").invoke(null);
+    Map componentKeyStrokeMap = ReflectionUtil.getField(manager.getClass(), manager, Hashtable.class, "componentKeyStrokeMap");
+    componentKeyStrokeMap.clear();
+    Map containerMap = ReflectionUtil.getField(manager.getClass(), manager, Hashtable.class, "containerMap");
+    containerMap.clear();
   }
 
-  protected void checkForSettingsDamage() throws Exception {
+  protected CompositeException checkForSettingsDamage() throws Exception {
     Application app = ApplicationManager.getApplication();
     if (isPerformanceTest() || app == null || app instanceof MockApplication) {
-      return;
+      return new CompositeException();
     }
 
     CodeStyleSettings oldCodeStyleSettings = myOldCodeStyleSettings;
     myOldCodeStyleSettings = null;
 
-    doCheckForSettingsDamage(oldCodeStyleSettings, getCurrentCodeStyleSettings());
+    return doCheckForSettingsDamage(oldCodeStyleSettings, getCurrentCodeStyleSettings());
   }
 
-  public static void doCheckForSettingsDamage(@NotNull CodeStyleSettings oldCodeStyleSettings,
+  public static CompositeException doCheckForSettingsDamage(@NotNull CodeStyleSettings oldCodeStyleSettings,
                                               @NotNull CodeStyleSettings currentCodeStyleSettings) throws Exception {
     CompositeException result = new CompositeException();
     final CodeInsightSettings settings = CodeInsightSettings.getInstance();
@@ -268,7 +264,7 @@ public abstract class UsefulTestCase extends TestCase {
       result.add(e);
     }
 
-    if (!result.isEmpty()) throw result;
+    return result;
   }
 
   protected void storeSettings() {
@@ -326,7 +322,7 @@ public abstract class UsefulTestCase extends TestCase {
     UIUtil.invokeAndWaitIfNeeded(r);
   }
 
-  protected void invokeTestRunnable(Runnable runnable) throws Exception {
+  protected void invokeTestRunnable(@NotNull Runnable runnable) throws Exception {
     UIUtil.invokeAndWaitIfNeeded(runnable);
     //runnable.run();
   }
@@ -335,6 +331,7 @@ public abstract class UsefulTestCase extends TestCase {
     super.runBare();
   }
 
+  @Override
   public void runBare() throws Throwable {
     if (!shouldRunTest()) return;
 
@@ -419,7 +416,7 @@ public abstract class UsefulTestCase extends TestCase {
       String expectedString = toString(expected);
       String actualString = toString(actual);
       Assert.assertEquals(erroMsg, expectedString, actualString);
-      Assert.fail("Warning! 'toString' do not reflect the difference.\nExpected: " + expectedString + "\nActual: " + actualString);
+      Assert.fail("Warning! 'toString' does not reflect the difference.\nExpected: " + expectedString + "\nActual: " + actualString);
     }
   }
 
@@ -573,8 +570,12 @@ public abstract class UsefulTestCase extends TestCase {
 
   public static <T> T assertOneElement(Collection<T> collection) {
     Assert.assertNotNull(collection);
-    Assert.assertEquals(toString(collection), 1, collection.size());
-    return collection.iterator().next();
+    Iterator<T> iterator = collection.iterator();
+    String toString = toString(collection);
+    Assert.assertTrue(toString, iterator.hasNext());
+    T t = iterator.next();
+    Assert.assertFalse(toString, iterator.hasNext());
+    return t;
   }
 
   public static <T> T assertOneElement(T[] ts) {
@@ -586,7 +587,7 @@ public abstract class UsefulTestCase extends TestCase {
   public static <T> void assertOneOf(T value, T... values) {
     boolean found = false;
     for (T v : values) {
-      if (value == v || (value != null && value.equals(v))) {
+      if (value == v || value != null && value.equals(v)) {
         found = true;
       }
     }
@@ -599,6 +600,11 @@ public abstract class UsefulTestCase extends TestCase {
 
   public static void assertEmpty(final Object[] array) {
     assertOrderedEquals(array);
+  }
+
+  public static void assertNotEmpty(final Collection<?> collection) {
+    if (collection == null) return;
+    assertTrue(!collection.isEmpty());
   }
 
   public static void assertEmpty(final Collection<?> collection) {
@@ -634,6 +640,14 @@ public abstract class UsefulTestCase extends TestCase {
     String expectedText = StringUtil.convertLineSeparators(expected.trim());
     String actualText = StringUtil.convertLineSeparators(actual.trim());
     Assert.assertEquals(expectedText, actualText);
+  }
+
+  public static void assertExists(File file){
+    assertTrue("File should exist " + file, file.exists());
+  }
+
+  public static void assertDoesntExist(File file){
+    assertFalse("File should not exist " + file, file.exists());
   }
 
   protected String getTestName(boolean lowercaseFirstLetter) {
@@ -681,10 +695,14 @@ public abstract class UsefulTestCase extends TestCase {
     String fileText;
     try {
       if (OVERWRITE_TESTDATA) {
-        FileUtil.writeToFile(new File(filePath), actualText);
+        VfsTestUtil.overwriteTestData(filePath, actualText);
         System.out.println("File " + filePath + " created.");
       }
-      fileText = FileUtil.loadFile(new File(filePath));
+      fileText = FileUtil.loadFile(new File(filePath), CharsetToolkit.UTF8);
+    }
+    catch (FileNotFoundException e) {
+      VfsTestUtil.overwriteTestData(filePath, actualText);
+      throw new AssertionFailedError("No output text found. File " + filePath + " created.");
     }
     catch (IOException e) {
       throw new RuntimeException(e);
@@ -738,41 +756,61 @@ public abstract class UsefulTestCase extends TestCase {
   }
 
   public static void doPostponedFormatting(final Project project) {
-    CommandProcessor.getInstance().runUndoTransparentAction(new Runnable() {
+    DocumentUtil.writeInRunUndoTransparentAction(new Runnable() {
       @Override
       public void run() {
-        ApplicationManager.getApplication().runWriteAction(new Runnable() {
-          @Override
-          public void run() {
-            PsiDocumentManager.getInstance(project).commitAllDocuments();
-            PostprocessReformattingAspect.getInstance(project).doPostponedFormatting();
-          }
-        });
+        PsiDocumentManager.getInstance(project).commitAllDocuments();
+        PostprocessReformattingAspect.getInstance(project).doPostponedFormatting();
       }
     });
   }
 
   protected static void checkAllTimersAreDisposed() {
+    Field firstTimerF;
+    Object timerQueue;
+    Object timer;
     try {
-      Class<?> aClass = Class.forName("javax.swing.TimerQueue");
+      Class<?> TimerQueueC = Class.forName("javax.swing.TimerQueue");
+      Method sharedInstance = TimerQueueC.getDeclaredMethod("sharedInstance");
+      sharedInstance.setAccessible(true);
 
-      Method inst = aClass.getDeclaredMethod("sharedInstance");
-      inst.setAccessible(true);
-      Object queue = inst.invoke(null);
-      Field field = aClass.getDeclaredField("firstTimer");
-      field.setAccessible(true);
-      Object firstTimer = field.get(queue);
-      if (firstTimer != null) {
-        try {
-          fail("Not disposed Timer: " + firstTimer.toString() + "; queue:" + queue);
-        }
-        finally {
-          field.set(queue, null);
-        }
+      firstTimerF = ReflectionUtil.getDeclaredField(TimerQueueC, "firstTimer");
+      timerQueue = sharedInstance.invoke(null);
+      if (firstTimerF == null) {
+        // jdk 8
+        DelayQueue delayQueue = ReflectionUtil.getField(TimerQueueC, timerQueue, DelayQueue.class, "queue");
+        timer = delayQueue.peek();
+      }
+      else {
+        // ancient jdk
+        firstTimerF.setAccessible(true);
+        timer = firstTimerF.get(timerQueue);
       }
     }
     catch (Throwable e) {
-      // Ignore
+      throw new RuntimeException(e);
+    }
+    if (timer != null) {
+      if (firstTimerF != null) {
+        ReflectionUtil.resetField(timerQueue, firstTimerF);
+      }
+      String text = "";
+      if (timer instanceof Delayed) {
+        long delay = ((Delayed)timer).getDelay(TimeUnit.MILLISECONDS);
+        text = "(delayed for "+delay+"ms)";
+        Method getTimer = ReflectionUtil.getDeclaredMethod(timer.getClass(), "getTimer");
+        getTimer.setAccessible(true);
+        try {
+          timer = getTimer.invoke(timer);
+        }
+        catch (Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+      Timer t = (Timer)timer;
+      text = "Timer (listeners: "+Arrays.asList(t.getActionListeners()) + ") "+text;
+
+      fail("Not disposed Timer: " + text + "; queue:" + timerQueue);
     }
   }
 
@@ -862,12 +900,11 @@ public abstract class UsefulTestCase extends TestCase {
     while (aClass != null && aClass != Object.class) {
       if (aClass.getAnnotation(annotationClass) != null) return true;
       if (!methodChecked) {
-        try {
-          Method method = aClass.getDeclaredMethod(methodName);
+        Method method = ReflectionUtil.getDeclaredMethod(aClass, methodName);
+        if (method != null) {
           if (method.getAnnotation(annotationClass) != null) return true;
           methodChecked = true;
         }
-        catch (NoSuchMethodException ignored) { }
       }
       aClass = aClass.getSuperclass();
     }
@@ -893,7 +930,8 @@ public abstract class UsefulTestCase extends TestCase {
     file.refresh(false, true);
   }
 
-  public static @NotNull Test filteredSuite(@RegExp String regexp, @NotNull Test test) {
+  @NotNull
+  public static Test filteredSuite(@RegExp String regexp, @NotNull Test test) {
     final Pattern pattern = Pattern.compile(regexp);
     final TestSuite testSuite = new TestSuite();
     new Processor<Test>() {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,10 +20,12 @@ import com.intellij.ide.IdeTooltipManager;
 import com.intellij.ide.dnd.DnDAware;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.ui.Divider;
 import com.intellij.openapi.ui.Painter;
-import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.ui.impl.GlassPaneDialogWrapperPeer;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Weighted;
 import com.intellij.openapi.wm.IdeGlassPane;
 import com.intellij.openapi.wm.IdeGlassPaneUtil;
 import com.intellij.util.ui.UIUtil;
@@ -35,10 +37,27 @@ import javax.swing.text.html.HTMLEditorKit;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.*;
+import java.util.List;
 
 public class IdeGlassPaneImpl extends JPanel implements IdeGlassPaneEx, IdeEventQueue.EventDispatcher, Painter.Listener {
 
-  private final Set<EventListener> myMouseListeners = new LinkedHashSet<EventListener>();
+  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.wm.impl.IdeGlassPaneImpl");
+
+  private final List<EventListener> myMouseListeners = new ArrayList<EventListener>();
+  private final Set<EventListener> mySortedMouseListeners = new TreeSet<EventListener>(new Comparator<EventListener>() {
+    @Override
+    public int compare(EventListener o1, EventListener o2) {
+      double weight1 = 0;
+      double weight2 = 0;
+      if (o1 instanceof Weighted) {
+        weight1 = ((Weighted)o1).getWeight();
+      }
+      if (o2 instanceof Weighted) {
+        weight2 = ((Weighted)o2).getWeight();
+      }
+      return weight1 > weight2 ? 1 : weight1 < weight2 ? -1 : myMouseListeners.indexOf(o1) - myMouseListeners.indexOf(o2);
+    }
+  });
   private final JRootPane myRootPane;
 
   private final Set<Painter> myPainters = new LinkedHashSet<Painter>();
@@ -52,7 +71,12 @@ public class IdeGlassPaneImpl extends JPanel implements IdeGlassPaneEx, IdeEvent
   private Cursor myLastOriginalCursor;
   private MouseEvent myPrevPressEvent;
 
-  private JPanel myFocusProxy = new JPanel();
+  private JPanel myFocusProxy = new JPanel(){
+    @Override
+    public String toString() {
+      return "FocusProxy";
+    }
+  };
 
   public IdeGlassPaneImpl(JRootPane rootPane) {
     myRootPane = rootPane;
@@ -269,7 +293,7 @@ public class IdeGlassPaneImpl extends JPanel implements IdeGlassPaneEx, IdeEvent
         return false;
       }
 
-      for (EventListener each : myMouseListeners) {
+      for (EventListener each : mySortedMouseListeners) {
         if (motion && each instanceof MouseMotionListener) {
           fireMouseMotion((MouseMotionListener)each, event);
         }
@@ -316,9 +340,12 @@ public class IdeGlassPaneImpl extends JPanel implements IdeGlassPaneEx, IdeEvent
         }
         else {
           cursor = Cursor.getDefaultCursor();
-          getRootPane().setCursor(cursor);
-
-
+          JRootPane rootPane = getRootPane();
+          if (rootPane != null) {
+            rootPane.setCursor(cursor);
+          } else {
+            LOG.warn("Root pane is null. Event: " + e);
+          }
           restoreLastComponent(null);
           myLastOriginalCursor = null;
           myLastCursorComponent = null;
@@ -331,7 +358,7 @@ public class IdeGlassPaneImpl extends JPanel implements IdeGlassPaneEx, IdeEvent
   private boolean canProcessCursorFor(Component target) {
     if (target instanceof JMenu ||
         target instanceof JMenuItem ||
-        target instanceof Splitter.Divider ||
+        target instanceof Divider ||
         target instanceof JSeparator ||
         (target instanceof JEditorPane && ((JEditorPane)target).getEditorKit() instanceof HTMLEditorKit)) {
       return false;
@@ -422,7 +449,10 @@ public class IdeGlassPaneImpl extends JPanel implements IdeGlassPaneEx, IdeEvent
   }
 
   private void _addListener(final EventListener listener, final Disposable parent) {
-    myMouseListeners.add(listener);
+    if (!myMouseListeners.contains(listener)) {
+      myMouseListeners.add(listener);
+      updateSortedList();
+    }
     activateIfNeeded();
     Disposer.register(parent, new Disposable() {
       public void dispose() {
@@ -444,8 +474,15 @@ public class IdeGlassPaneImpl extends JPanel implements IdeGlassPaneEx, IdeEvent
   }
 
   private void removeListener(final EventListener listener) {
-    myMouseListeners.remove(listener);
+    if (myMouseListeners.remove(listener)) {
+      updateSortedList();
+    }
     deactivateIfNeeded();
+  }
+
+  private void updateSortedList() {
+    mySortedMouseListeners.clear();
+    mySortedMouseListeners.addAll(myMouseListeners);
   }
 
   private void deactivateIfNeeded() {

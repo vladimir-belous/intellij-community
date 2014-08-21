@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,18 +27,16 @@ import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vcs.impl.ContentRevisionCache;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.vcsUtil.VcsFilePathUtil;
 import com.intellij.vcsUtil.VcsFileUtil;
 import com.intellij.vcsUtil.VcsUtil;
 import git4idea.util.GitFileUtils;
-import git4idea.history.wholeTree.GitBinaryMultipleContentsRevision;
-import git4idea.history.wholeTree.GitMultipleContentsRevision;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.Charset;
-import java.util.List;
 
 /**
  * Git content revision
@@ -116,21 +114,6 @@ public class GitContentRevision implements ContentRevision {
     return myFile.hashCode() + myRevision.hashCode();
   }
 
-  public static ContentRevision createMultipleParentsRevision(@NotNull Project project, @NotNull final FilePath file,
-                                                              @NotNull GitRevisionNumber currentRevision,
-                                                              @NotNull final List<GitRevisionNumber> parentRevisions) throws VcsException {
-    final GitContentRevision contentRevision = createRevisionImpl(file, currentRevision, project, null);
-    if (parentRevisions.size() == 1) {
-      return contentRevision;
-    } else {
-      if (contentRevision instanceof GitBinaryContentRevision) {
-        return new GitBinaryMultipleContentsRevision(file, parentRevisions, (GitBinaryContentRevision) contentRevision);
-      } else {
-        return new GitMultipleContentsRevision(file, parentRevisions, contentRevision);
-      }
-    }
-  }
-
   /**
    * Create revision
    *
@@ -186,7 +169,7 @@ public class GitContentRevision implements ContentRevision {
                                     boolean isDeleted, boolean canBeDeleted, boolean unescapePath) throws VcsException {
     final String absolutePath = makeAbsolutePath(vcsRoot, path, unescapePath);
     FilePath file = isDeleted ? VcsUtil.getFilePathForDeletedFile(absolutePath, false) : VcsUtil.getFilePath(absolutePath, false);
-    if (canBeDeleted && (! SystemInfo.isFileSystemCaseSensitive) && VcsUtil.caseDiffers(file.getPath(), absolutePath)) {
+    if (canBeDeleted && (! SystemInfo.isFileSystemCaseSensitive) && VcsFilePathUtil.caseDiffers(file.getPath(), absolutePath)) {
       // as for deleted file
       file = FilePathImpl.createForDeletedFile(new File(absolutePath), false);
     }

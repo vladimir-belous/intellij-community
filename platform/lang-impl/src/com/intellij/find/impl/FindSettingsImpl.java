@@ -103,10 +103,14 @@ public class FindSettingsImpl extends FindSettings implements PersistentStateCom
   @SuppressWarnings({"WeakerAccess"}) public boolean WHOLE_WORDS_ONLY = false;
   @SuppressWarnings({"WeakerAccess"}) public boolean COMMENTS_ONLY = false;
   @SuppressWarnings({"WeakerAccess"}) public boolean STRING_LITERALS_ONLY = false;
+  @SuppressWarnings({"WeakerAccess"}) public boolean EXCEPT_COMMENTS = false;
+  @SuppressWarnings({"WeakerAccess"}) public boolean EXCEPT_COMMENTS_AND_STRING_LITERALS = false;
+  @SuppressWarnings({"WeakerAccess"}) public boolean EXCEPT_STRING_LITERALS = false;
   @SuppressWarnings({"WeakerAccess"}) public boolean LOCAL_WHOLE_WORDS_ONLY = false;
   @SuppressWarnings({"WeakerAccess"}) public boolean REGULAR_EXPRESSIONS = false;
   @SuppressWarnings({"WeakerAccess"}) public boolean LOCAL_REGULAR_EXPRESSIONS = false;
   @SuppressWarnings({"WeakerAccess"}) public boolean WITH_SUBDIRECTORIES = true;
+  @SuppressWarnings({"WeakerAccess"}) public boolean SHOW_RESULTS_IN_SEPARATE_VIEW = false;
 
   @SuppressWarnings({"WeakerAccess"}) public String SEARCH_SCOPE = DEFAULT_SEARCH_SCOPE;
   @SuppressWarnings({"WeakerAccess"}) public String FILE_MASK;
@@ -276,8 +280,18 @@ public class FindSettingsImpl extends FindSettings implements PersistentStateCom
     model.setGlobal(isGlobal());
     model.setRegularExpressions(isRegularExpressions());
     model.setWholeWordsOnly(isWholeWordsOnly());
-    model.setInCommentsOnly(isInCommentsOnly());
-    model.setInStringLiteralsOnly(isInStringLiteralsOnly());
+    FindModel.SearchContext searchContext = isInCommentsOnly() ?
+                                      FindModel.SearchContext.IN_COMMENTS :
+                                      isInStringLiteralsOnly() ?
+                                      FindModel.SearchContext.IN_STRING_LITERALS :
+                                      isExceptComments() ?
+                                      FindModel.SearchContext.EXCEPT_COMMENTS :
+                                      isExceptStringLiterals() ?
+                                      FindModel.SearchContext.EXCEPT_STRING_LITERALS :
+                                      isExceptCommentsAndLiterals() ?
+                                      FindModel.SearchContext.EXCEPT_COMMENTS_AND_STRING_LITERALS :
+                                      FindModel.SearchContext.ANY;
+    model.setSearchContext(searchContext);
     model.setWithSubdirectories(isWithSubdirectories());
     model.setFileFilter(FILE_MASK);
 
@@ -383,5 +397,45 @@ public class FindSettingsImpl extends FindSettings implements PersistentStateCom
   @Override
   public void setCustomScope(final String SEARCH_SCOPE) {
     this.SEARCH_SCOPE = SEARCH_SCOPE;
+  }
+
+  @Override
+  public boolean isExceptComments() {
+    return EXCEPT_COMMENTS;
+  }
+
+  @Override
+  public void setExceptCommentsAndLiterals(boolean selected) {
+    EXCEPT_COMMENTS_AND_STRING_LITERALS = selected;
+  }
+
+  @Override
+  public boolean isShowResultsInSeparateView() {
+    return SHOW_RESULTS_IN_SEPARATE_VIEW;
+  }
+
+  @Override
+  public void setShowResultsInSeparateView(boolean optionValue) {
+    SHOW_RESULTS_IN_SEPARATE_VIEW = optionValue;
+  }
+
+  @Override
+  public boolean isExceptCommentsAndLiterals() {
+    return EXCEPT_COMMENTS_AND_STRING_LITERALS;
+  }
+
+  @Override
+  public void setExceptComments(boolean selected) {
+    EXCEPT_COMMENTS = selected;
+  }
+
+  @Override
+  public boolean isExceptStringLiterals() {
+    return EXCEPT_STRING_LITERALS;
+  }
+
+  @Override
+  public void setExceptStringLiterals(boolean selected) {
+    EXCEPT_STRING_LITERALS = selected;
   }
 }

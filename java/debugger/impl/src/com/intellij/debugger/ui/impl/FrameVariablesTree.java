@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -52,9 +52,13 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.text.CharArrayUtil;
 import com.intellij.util.ui.tree.TreeModelAdapter;
 import com.intellij.xdebugger.XDebuggerBundle;
+import com.intellij.xdebugger.frame.XStackFrame;
+import com.intellij.xdebugger.settings.XDebuggerSettingsManager;
 import com.sun.jdi.*;
 import gnu.trove.TIntObjectHashMap;
 import gnu.trove.TObjectProcedure;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.event.TreeModelEvent;
 import javax.swing.tree.TreeModel;
@@ -62,13 +66,22 @@ import javax.swing.tree.TreePath;
 import java.util.*;
 
 public class FrameVariablesTree extends DebuggerTree {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.ui.impl.FrameDebuggerTree");
+  private static final Logger LOG = Logger.getInstance(FrameVariablesTree.class);
+
   private boolean myAnyNewLocals;
   private boolean myAutoWatchMode = false;
 
-  public FrameVariablesTree(Project project) {
+  private final VariablesPanel myVariablesPanel;
+
+  public FrameVariablesTree(@NotNull Project project) {
+    this(project, null);
+  }
+
+  public FrameVariablesTree(@NotNull Project project, @Nullable VariablesPanel variablesPanel) {
     super(project);
+
     getEmptyText().setText(XDebuggerBundle.message("debugger.variables.not.available"));
+    myVariablesPanel = variablesPanel;
   }
 
   public boolean isAutoWatchMode() {
@@ -83,11 +96,13 @@ public class FrameVariablesTree extends DebuggerTree {
     }
   }
 
+  @Override
   protected void build(DebuggerContextImpl context) {
     myAnyNewLocals = false;
     buildWhenPaused(context, new RefreshFrameTreeCommand(context));
   }
 
+  @Override
   public void restoreNodeState(DebuggerTreeNodeImpl node) {
     if (myAnyNewLocals) {
       final NodeDescriptorImpl descriptor = node.getDescriptor();
@@ -107,7 +122,8 @@ public class FrameVariablesTree extends DebuggerTree {
   }
 
 
-  protected DebuggerCommandImpl getBuildNodeCommand(final DebuggerTreeNodeImpl node) {
+  @Override
+  protected DebuggerCommandImpl getBuildNodeCommand(@NotNull DebuggerTreeNodeImpl node) {
     if (node.getDescriptor() instanceof StackFrameDescriptorImpl) {
       return new BuildFrameTreeVariablesCommand(node);
     }
@@ -118,23 +134,40 @@ public class FrameVariablesTree extends DebuggerTree {
     public BuildFrameTreeVariablesCommand(DebuggerTreeNodeImpl stackNode) {
       super(stackNode);
     }
-    
+
+    @Override
+    public void threadAction() {
+      if (myVariablesPanel != null) {
+        StackFrameDescriptorImpl stackDescriptor = (StackFrameDescriptorImpl)getNode().getDescriptor();
+        XStackFrame xStackFrame = stackDescriptor.getXStackFrame();
+        myVariablesPanel.stackChanged(xStackFrame);
+        if (xStackFrame != null) {
+          return;
+        }
+      }
+
+      super.threadAction();
+    }
+
+    @Override
     protected void buildVariables(final StackFrameDescriptorImpl stackDescriptor, final EvaluationContextImpl evaluationContext) throws EvaluateException {
       final DebuggerContextImpl debuggerContext = getDebuggerContext();
       final SourcePosition sourcePosition = debuggerContext.getSourcePosition();
       if (sourcePosition == null) {
         return;
       }
+
       try {
-        if (!ViewsGeneralSettings.getInstance().ENABLE_AUTO_EXPRESSIONS && !myAutoWatchMode) {
+        if (!XDebuggerSettingsManager.getInstance().getDataViewSettings().isAutoExpressions() && !myAutoWatchMode) {
           // optimization
           super.buildVariables(stackDescriptor, evaluationContext);
         }
         else {
-          final Map<String, LocalVariableProxyImpl> visibleVariables = getVisibleVariables(stackDescriptor);
+          final Map<String, LocalVariableProxyImpl> visibleVariables = getVisibleVariables(stackDescriptor.getFrameProxy());
           final EvaluationContextImpl evalContext = debuggerContext.createEvaluationContext();
           final Pair<Set<String>, Set<TextWithImports>> usedVars =
             ApplicationManager.getApplication().runReadAction(new Computable<Pair<Set<String>, Set<TextWithImports>>>() {
+              @Override
               public Pair<Set<String>, Set<TextWithImports>> compute() {
                 return findReferencedVars(visibleVariables.keySet(), sourcePosition, evalContext);
               }
@@ -160,9 +193,7 @@ public class FrameVariablesTree extends DebuggerTree {
       catch (EvaluateException e) {
         if (e.getCause() instanceof AbsentInformationException) {
           final StackFrameProxyImpl frame = stackDescriptor.getFrameProxy();
-          if (frame == null) {
-            throw e;
-          }
+
           final Collection<Value> argValues = frame.getArgumentValues();
           int index = 0;
           for (Value argValue : argValues) {
@@ -195,12 +226,13 @@ public class FrameVariablesTree extends DebuggerTree {
     }
   }
 
-  private static List<DecompiledLocalVariable> collectVariablesFromBytecode(final StackFrameProxy frame, int argumentCount) throws EvaluateException {
+  public static List<DecompiledLocalVariable> collectVariablesFromBytecode(final StackFrameProxy frame, int argumentCount) throws EvaluateException {
     if (!frame.getVirtualMachine().canGetBytecodes()) {
       return Collections.emptyList();
     }
     try {
       final Location location = frame.location();
+      LOG.assertTrue(location != null);
       final Method method = location.method();
       final Location methodLocation = method.location();
       if (methodLocation == null || methodLocation.codeIndex() < 0) {
@@ -242,14 +274,13 @@ public class FrameVariablesTree extends DebuggerTree {
     }
     catch (UnsupportedOperationException ignored) {
     }
+    catch (Exception e) {
+      LOG.info(e);
+    }
     return Collections.emptyList();
   }
 
-  private static Map<String, LocalVariableProxyImpl> getVisibleVariables(final StackFrameDescriptorImpl stackDescriptor) throws EvaluateException {
-    final StackFrameProxyImpl frame = stackDescriptor.getFrameProxy();
-    if (frame == null) {
-      return Collections.emptyMap();
-    }
+  public static Map<String, LocalVariableProxyImpl> getVisibleVariables(final StackFrameProxyImpl frame) throws EvaluateException {
     final Map<String, LocalVariableProxyImpl> vars = new HashMap<String, LocalVariableProxyImpl>();
     for (LocalVariableProxyImpl localVariableProxy : frame.visibleVariables()) {
       vars.put(localVariableProxy.name(), localVariableProxy);
@@ -290,22 +321,22 @@ public class FrameVariablesTree extends DebuggerTree {
     return true;
   }
 
-  private static Pair<Set<String>, Set<TextWithImports>> findReferencedVars(final Set<String> visibleVars,
+  public static Pair<Set<String>, Set<TextWithImports>> findReferencedVars(final Set<String> visibleVars,
                                                                             final SourcePosition position,
                                                                             EvaluationContextImpl evalContext) {
     final int line = position.getLine();
     if (line < 0) {
-      return new Pair<Set<String>, Set<TextWithImports>>(Collections.<String>emptySet(), Collections.<TextWithImports>emptySet());
+      return Pair.create(Collections.<String>emptySet(), Collections.<TextWithImports>emptySet());
     }
     final PsiFile positionFile = position.getFile();
     if (!positionFile.getLanguage().isKindOf(JavaLanguage.INSTANCE)) {
-      return new Pair<Set<String>, Set<TextWithImports>>(visibleVars, Collections.<TextWithImports>emptySet());
+      return Pair.create(visibleVars, Collections.<TextWithImports>emptySet());
     }
 
     final VirtualFile vFile = positionFile.getVirtualFile();
     final Document doc = vFile != null? FileDocumentManager.getInstance().getDocument(vFile) : null;
     if (doc == null || doc.getLineCount() == 0 || line > (doc.getLineCount() - 1)) {
-      return new Pair<Set<String>, Set<TextWithImports>>(Collections.<String>emptySet(), Collections.<TextWithImports>emptySet());
+      return Pair.create(Collections.<String>emptySet(), Collections.<TextWithImports>emptySet());
     }
     
     final TextRange limit = calculateLimitRange(positionFile, doc, line);
@@ -347,7 +378,7 @@ public class FrameVariablesTree extends DebuggerTree {
 
         //noinspection unchecked
         if (element instanceof PsiCompiledElement) {
-          return new Pair<Set<String>, Set<TextWithImports>>(visibleVars, Collections.<TextWithImports>emptySet());
+          return Pair.create(visibleVars, Collections.<TextWithImports>emptySet());
         }
         else {
           final Set<String> vars = new HashSet<String>();
@@ -355,11 +386,11 @@ public class FrameVariablesTree extends DebuggerTree {
           final PsiElementVisitor variablesCollector = new VariablesCollector(visibleVars, adjustRange(element, lineRange), expressions, vars, position, evalContext);
           element.accept(variablesCollector);
 
-          return new Pair<Set<String>, Set<TextWithImports>>(vars, expressions);
+          return Pair.create(vars, expressions);
         }
       }
     }
-    return new Pair<Set<String>, Set<TextWithImports>>(Collections.<String>emptySet(), Collections.<TextWithImports>emptySet());
+    return Pair.create(Collections.<String>emptySet(), Collections.<TextWithImports>emptySet());
   }
 
   private static TextRange calculateLimitRange(final PsiFile file, final Document doc, final int line) {
@@ -396,6 +427,7 @@ public class FrameVariablesTree extends DebuggerTree {
       super(context);
     }
 
+    @Override
     public void contextAction() throws Exception {
       DebuggerTreeNodeImpl rootNode;
 
@@ -407,7 +439,6 @@ public class FrameVariablesTree extends DebuggerTree {
 
       try {
         StackFrameProxyImpl frame = debuggerContext.getFrameProxy();
-
         if (frame != null) {
           NodeManagerImpl nodeManager = getNodeFactory();
           rootNode = nodeManager.createNode(nodeManager.getStackFrameDescriptor(null, frame), debuggerContext.createEvaluationContext());
@@ -433,7 +464,7 @@ public class FrameVariablesTree extends DebuggerTree {
               rootNode.add(MessageDescriptor.THREAD_IS_RUNNING);
             }
           }
-          catch (ObjectCollectedException e) {
+          catch (ObjectCollectedException ignored) {
             rootNode.add(new MessageDescriptor(DebuggerBundle.message("label.thread.node.thread.collected", currentThread.name())));
           }
         }
@@ -448,12 +479,14 @@ public class FrameVariablesTree extends DebuggerTree {
 
       final DebuggerTreeNodeImpl rootNode1 = rootNode;
       DebuggerInvocationUtil.swingInvokeLater(getProject(), new Runnable() {
+        @Override
         public void run() {
           getMutableModel().setRoot(rootNode1);
           treeChanged();
 
           final TreeModel model = getModel();
           model.addTreeModelListener(new TreeModelAdapter() {
+            @Override
             public void treeStructureChanged(TreeModelEvent e) {
               final Object[] path = e.getPath();
               if (path.length > 0 && path[path.length - 1] == rootNode1) {
@@ -537,7 +570,7 @@ public class FrameVariablesTree extends DebuggerTree {
       myVars = vars;
       myPosition = position;
       myEvalContext = evalContext;
-      myCollectExpressions = ViewsGeneralSettings.getInstance().ENABLE_AUTO_EXPRESSIONS;
+      myCollectExpressions = XDebuggerSettingsManager.getInstance().getDataViewSettings().isAutoExpressions();
     }
 
     @Override 

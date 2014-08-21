@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -65,6 +65,8 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.actionSystem.impl.ActionToolbarImpl");
 
   private static final List<ActionToolbarImpl> ourToolbars = new LinkedList<ActionToolbarImpl>();
+  private static final String RIGHT_ALIGN_KEY = "RIGHT_ALIGN";
+
   public static void updateAllToolbarsImmediately() {
     for (ActionToolbarImpl toolbar : new ArrayList<ActionToolbarImpl>(ourToolbars)) {
       toolbar.updateActionsImmediately();
@@ -107,7 +109,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar {
   private final ActionButtonLook myButtonLook = null;
   private final ActionButtonLook myMinimalButtonLook = new InplaceActionButtonLook();
   private final DataManager myDataManager;
-  protected final ActionManagerEx myActionManager;
+  @NotNull protected final ActionManagerEx myActionManager;
 
   private Rectangle myAutoPopupRec;
 
@@ -135,7 +137,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar {
                            @NotNull final ActionGroup actionGroup,
                            final boolean horizontal,
                            DataManager dataManager,
-                           ActionManagerEx actionManager,
+                           @NotNull ActionManagerEx actionManager,
                            KeymapManagerEx keymapManager) {
     this(place, actionGroup, horizontal, false, dataManager, actionManager, keymapManager, false);
   }
@@ -144,7 +146,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar {
                            final boolean horizontal,
                            final boolean decorateButtons,
                            DataManager dataManager,
-                           ActionManagerEx actionManager,
+                           @NotNull ActionManagerEx actionManager,
                            KeymapManagerEx keymapManager) {
     this(place, actionGroup, horizontal, decorateButtons, dataManager, actionManager, keymapManager, false);
   }
@@ -154,7 +156,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar {
                            final boolean horizontal,
                            final boolean decorateButtons,
                            DataManager dataManager,
-                           ActionManagerEx actionManager,
+                           @NotNull ActionManagerEx actionManager,
                            KeymapManagerEx keymapManager,
                            boolean updateActionsNow) {
     super(null);
@@ -189,11 +191,23 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar {
   }
 
   @Override
+  public void updateUI() {
+    super.updateUI();
+    for (Component component : getComponents()) {
+      tweakActionComponentUI(component);
+    }
+  }
+
+  @Override
   public void addNotify() {
     super.addNotify();
     ourToolbars.add(this);
     myActionManager.addTimerListener(500, myWeakTimerListener);
     myActionManager.addTransparentTimerListener(500, myWeakTimerListener);
+    
+    // should update action right on the showing, otherwise toolbar may not be displayed at all,
+    // since by default all updates are postponed until frame gets focused.  
+    updateActionsImmediately();
   }
 
   private boolean doMacEnhancementsForMainToolbar() {
@@ -205,7 +219,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar {
   }
 
   private boolean isInsideNavBar() {
-    return ActionPlaces.NAVIGATION_BAR.equals(myPlace);
+    return ActionPlaces.NAVIGATION_BAR_TOOLBAR.equals(myPlace);
   }
 
   @Override
@@ -260,11 +274,16 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar {
   }
 
   private void fillToolBar(final List<AnAction> actions, boolean layoutSecondaries) {
+    final List<AnAction> rightAligned = new ArrayList<AnAction>();
     if (myAddSeparatorFirst) {
       add(new MySeparator());
     }
     for (int i = 0; i < actions.size(); i++) {
       final AnAction action = actions.get(i);
+      if (action instanceof RightAlignedToolbarAction) {
+        rightAligned.add(action);
+        continue;
+      }
 //      if (action instanceof Separator && isNavBar()) {
 //        continue;
 //      }
@@ -299,35 +318,39 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar {
       add(mySecondaryActionsButton);
     }
 
-    if ((ActionPlaces.MAIN_TOOLBAR.equals(myPlace) || ActionPlaces.NAVIGATION_BAR.equals(myPlace))) {
-      final AnAction searchEverywhereAction = ActionManager.getInstance().getAction("SearchEverywhere");
-      if (searchEverywhereAction != null) {
-        try {
-          final CustomComponentAction searchEveryWhereAction = (CustomComponentAction)searchEverywhereAction;
-          final JComponent searchEverywhere = searchEveryWhereAction.createCustomComponent(searchEverywhereAction.getTemplatePresentation());
-          searchEverywhere.putClientProperty("SEARCH_EVERYWHERE", Boolean.TRUE);
-          add(searchEverywhere);
-        }
-        catch (Exception ignore) {}
-      }
+    for (AnAction action : rightAligned) {
+      JComponent button = action instanceof CustomComponentAction ? getCustomComponent(action) : createToolbarButton(action);
+      button.putClientProperty(RIGHT_ALIGN_KEY, Boolean.TRUE);
+      add(button);
     }
+    //if ((ActionPlaces.MAIN_TOOLBAR.equals(myPlace) || ActionPlaces.NAVIGATION_BAR_TOOLBAR.equals(myPlace))) {
+    //  final AnAction searchEverywhereAction = ActionManager.getInstance().getAction("SearchEverywhere");
+    //  if (searchEverywhereAction != null) {
+    //    try {
+    //      final CustomComponentAction searchEveryWhereAction = (CustomComponentAction)searchEverywhereAction;
+    //      final JComponent searchEverywhere = searchEveryWhereAction.createCustomComponent(searchEverywhereAction.getTemplatePresentation());
+    //      searchEverywhere.putClientProperty("SEARCH_EVERYWHERE", Boolean.TRUE);
+    //      add(searchEverywhere);
+    //    }
+    //    catch (Exception ignore) {}
+    //  }
+    //}
   }
 
   private JComponent getCustomComponent(AnAction action) {
     Presentation presentation = myPresentationFactory.getPresentation(action);
     JComponent customComponent = ((CustomComponentAction)action).createCustomComponent(presentation);
-    if (ActionPlaces.EDITOR_TOOLBAR.equals(myPlace)) {
-      // tweak font & color for editor toolbar to match editor tabs style
-      Color foreground = customComponent.getForeground();
-      customComponent.setFont(UIUtil.getLabelFont(UIUtil.FontSize.SMALL));
-      if (foreground != null) customComponent.setForeground(ColorUtil.dimmer(foreground));
-    }
+    tweakActionComponentUI(customComponent);
     presentation.putClientProperty(CustomComponentAction.CUSTOM_COMPONENT_PROPERTY, customComponent);
     return customComponent;
   }
 
-  private boolean isNavBar() {
-    return myPlace == ActionPlaces.NAVIGATION_BAR;
+  private void tweakActionComponentUI(@NotNull Component actionComponent) {
+    if (ActionPlaces.EDITOR_TOOLBAR.equals(myPlace)) {
+      // tweak font & color for editor toolbar to match editor tabs style
+      actionComponent.setFont(UIUtil.getLabelFont(UIUtil.FontSize.SMALL));
+      actionComponent.setForeground(ColorUtil.dimmer(JBColor.BLACK));
+    }
   }
 
   private Dimension getMinimumButtonSize() {
@@ -719,14 +742,18 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar {
       throw new IllegalStateException("unknown layoutPolicy: " + myLayoutPolicy);
     }
 
+
     if (getComponentCount() > 0 && size2Fit.width < Integer.MAX_VALUE) {
-      final Component component = getComponent(getComponentCount() - 1);
-      if (component instanceof JComponent && ((JComponent)component).getClientProperty("SEARCH_EVERYWHERE") == Boolean.TRUE) {
-        int max = 0;
-        for (int i = 0; i < bounds.size() - 2; i++) {
-          max = Math.max(max, bounds.get(i).height);
+      int maxHeight = 0;
+      for (int i = 0; i < bounds.size() - 2; i++) {
+        maxHeight = Math.max(maxHeight, bounds.get(i).height);
+      }
+
+      for (int i = getComponentCount() - 1, j = 1; i > 0; i--, j++) {
+        final Component component = getComponent(i);
+        if (component instanceof JComponent && ((JComponent)component).getClientProperty(RIGHT_ALIGN_KEY) == Boolean.TRUE) {
+          bounds.set(bounds.size() - j, new Rectangle(size2Fit.width - j * 25, 0, 25, maxHeight));
         }
-        bounds.set(bounds.size() - 1, new Rectangle(size2Fit.width - 25, 0, 25, max));
       }
     }
   }
@@ -1174,7 +1201,7 @@ public class ActionToolbarImpl extends JPanel implements ActionToolbar {
                         final ActionGroup actionGroup,
                         final boolean horizontal,
                         final DataManager dataManager,
-                        final ActionManagerEx actionManager,
+                        @NotNull ActionManagerEx actionManager,
                         final KeymapManagerEx keymapManager,
                         JComponent parent) {
       super(place, actionGroup, horizontal, false, dataManager, actionManager, keymapManager, true);

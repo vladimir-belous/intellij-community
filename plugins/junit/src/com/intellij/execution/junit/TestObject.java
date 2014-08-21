@@ -61,6 +61,7 @@ import com.intellij.openapi.util.Getter;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.psi.*;
 import com.intellij.refactoring.listeners.RefactoringElementListener;
@@ -68,6 +69,7 @@ import com.intellij.rt.execution.junit.IDEAJUnitListener;
 import com.intellij.rt.execution.junit.JUnitStarter;
 import com.intellij.util.Function;
 import com.intellij.util.PathUtil;
+import com.intellij.util.ui.UIUtil;
 import jetbrains.buildServer.messages.serviceMessages.ServiceMessageTypes;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -96,14 +98,20 @@ public abstract class TestObject implements JavaCommandLine {
                                       final Project project,
                                       final JUnitConfiguration configuration,
                                       ExecutionEnvironment environment) {
-    if (JUnitConfiguration.TEST_METHOD.equals(id))
+    if (JUnitConfiguration.TEST_METHOD.equals(id)) {
       return new TestMethod(project, configuration, environment);
-    if (JUnitConfiguration.TEST_CLASS.equals(id))
+    }
+    if (JUnitConfiguration.TEST_CLASS.equals(id)) {
       return new TestClass(project, configuration, environment);
-    if (JUnitConfiguration.TEST_PACKAGE.equals(id))
+    }
+    if (JUnitConfiguration.TEST_PACKAGE.equals(id)){
       return new TestPackage(project, configuration, environment);
-    else if (JUnitConfiguration.TEST_DIRECTORY.equals(id)) {
+    }
+    if (JUnitConfiguration.TEST_DIRECTORY.equals(id)) {
       return new TestDirectory(project, configuration, environment);
+    }
+    if (JUnitConfiguration.TEST_CATEGORY.equals(id)) {
+      return new TestCategory(project, configuration, environment);
     }
     if (JUnitConfiguration.TEST_PATTERN.equals(id)) {
       return new TestsPattern(project, configuration, environment);
@@ -191,7 +199,14 @@ public abstract class TestObject implements JavaCommandLine {
   }
 
   protected void initialize() throws ExecutionException {
-    JavaParametersUtil.configureConfiguration(myJavaParameters, myConfiguration);
+    String parameters = myConfiguration.getProgramParameters();
+    myConfiguration.getPersistentData().setProgramParameters(null);
+    try {
+      JavaParametersUtil.configureConfiguration(myJavaParameters, myConfiguration);
+    }
+    finally {
+      myConfiguration.getPersistentData().setProgramParameters(parameters);
+    }
     myJavaParameters.setMainClass(JUnitConfiguration.JUNIT_START_CLASS);
     final Module module = myConfiguration.getConfigurationModule().getModule();
     if (myJavaParameters.getJdk() == null){
@@ -202,10 +217,13 @@ public abstract class TestObject implements JavaCommandLine {
 
     myJavaParameters.getClassPath().add(JavaSdkUtil.getIdeaRtJarPath());
     myJavaParameters.getClassPath().add(PathUtil.getJarPathForClass(JUnitStarter.class));
-    if (Registry.is("junit_sm_runner", false)) {
+    if (Registry.is("junit_sm_runner")) {
       myJavaParameters.getClassPath().add(PathUtil.getJarPathForClass(ServiceMessageTypes.class));
     }
     myJavaParameters.getProgramParametersList().add(JUnitStarter.IDE_VERSION + JUnitStarter.VERSION);
+    if (!StringUtil.isEmptyOrSpaces(parameters)) {
+      myJavaParameters.getProgramParametersList().add("@name" + parameters);
+    }
     for (RunConfigurationExtension ext : Extensions.getExtensions(RunConfigurationExtension.EP_NAME)) {
       ext.updateJavaParameters(myConfiguration, myJavaParameters, getRunnerSettings());
     }
@@ -255,7 +273,7 @@ public abstract class TestObject implements JavaCommandLine {
 
   @Override
   public ExecutionResult execute(final Executor executor, @NotNull final ProgramRunner runner) throws ExecutionException {
-    final boolean smRunner = Registry.is("junit_sm_runner", false);
+    final boolean smRunner = Registry.is("junit_sm_runner");
     if (smRunner) {
       myJavaParameters.getVMParametersList().add("-Didea.junit.sm_runner");
     }
@@ -421,12 +439,12 @@ public abstract class TestObject implements JavaCommandLine {
   private void appendForkInfo(Executor executor) throws ExecutionException {
     final String forkMode = myConfiguration.getForkMode();
     if (Comparing.strEqual(forkMode, "none")) {
-      final String workingDirectory = myConfiguration.getWorkingDirectory();
-      if (!JUnitConfiguration.TEST_PACKAGE.equals(myConfiguration.getPersistentData().TEST_OBJECT) ||
-          myConfiguration.getPersistentData().getScope() == TestSearchScope.SINGLE_MODULE ||
-          !("$" + PathMacroUtil.MODULE_DIR_MACRO_NAME + "$").equals(workingDirectory)) {
-        return;
+      if (forkPerModule() && getRunnerSettings() != null) {
+        final String actionName = UIUtil.removeMnemonic(executor.getStartActionText());
+        throw new CantRunException("'" + actionName + "' is disabled when per-module working directory is configured.<br/>" +
+                                   "Please specify single working directory, or change test scope to single module.");
       }
+      return;
     }
 
     if (getRunnerSettings() != null) {
@@ -474,6 +492,9 @@ public abstract class TestObject implements JavaCommandLine {
       final PrintWriter writer = new PrintWriter(myTempFile, CharsetToolkit.UTF8);
       try {
         writer.println(packageName);
+        final JUnitConfiguration.Data data = myConfiguration.getPersistentData();
+        final String category = data.TEST_OBJECT == JUnitConfiguration.TEST_CATEGORY ? data.getCategory() : "";
+        writer.println(category);
         final List<String> testNames = new ArrayList<String>();
         for (final T element : elements) {
           final String name = nameFunction.fun(element);

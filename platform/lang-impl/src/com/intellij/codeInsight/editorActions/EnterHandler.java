@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -56,41 +56,42 @@ public class EnterHandler extends BaseEnterHandler {
   private final EditorActionHandler myOriginalHandler;
 
   public EnterHandler(EditorActionHandler originalHandler) {
+    super(true);
     myOriginalHandler = originalHandler;
   }
 
   @Override
-  public boolean isEnabled(Editor editor, DataContext dataContext) {
-    return myOriginalHandler.isEnabled(editor, dataContext);
+  public boolean isEnabledForCaret(@NotNull Editor editor, @NotNull Caret caret, DataContext dataContext) {
+    return myOriginalHandler.isEnabled(editor, caret, dataContext);
   }
 
   @Override
-  public void executeWriteAction(final Editor editor, final DataContext dataContext) {
+  public void executeWriteAction(final Editor editor, final Caret caret, final DataContext dataContext) {
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     if (project != null && !project.isDefault()) {
       PostprocessReformattingAspect.getInstance(project).disablePostprocessFormattingInside(new Runnable() {
         @Override
         public void run() {
-          executeWriteActionInner(editor, dataContext, project);
+          executeWriteActionInner(editor, caret, dataContext, project);
         }
       });
     }
     else {
-      executeWriteActionInner(editor, dataContext, project);
+      executeWriteActionInner(editor, caret, dataContext, project);
     }
   }
 
-  private void executeWriteActionInner(Editor editor, DataContext dataContext, Project project) {
+  private void executeWriteActionInner(Editor editor, Caret caret, DataContext dataContext, Project project) {
     CodeInsightSettings settings = CodeInsightSettings.getInstance();
     if (project == null) {
-      myOriginalHandler.execute(editor, dataContext);
+      myOriginalHandler.execute(editor, caret, dataContext);
       return;
     }
     final Document document = editor.getDocument();
     final PsiFile file = PsiUtilBase.getPsiFileInEditor(editor, project);
 
     if (file == null) {
-      myOriginalHandler.execute(editor, dataContext);
+      myOriginalHandler.execute(editor, caret, dataContext);
       return;
     }
 
@@ -107,7 +108,7 @@ public class EnterHandler extends BaseEnterHandler {
         int offset2 = CharArrayUtil.shiftForward(text, offset1 + 1, " \t");
         boolean isEmptyLine = offset2 >= length || text.charAt(offset2) == '\n';
         if (!isEmptyLine) { // we are in leading spaces of a non-empty line
-          myOriginalHandler.execute(editor, dataContext);
+          myOriginalHandler.execute(editor, caret, dataContext);
           return;
         }
       }
@@ -148,7 +149,7 @@ public class EnterHandler extends BaseEnterHandler {
     final boolean insertSpace =
       !isFirstColumn && !(caretOffset >= text.length() || text.charAt(caretOffset) == ' ' || text.charAt(caretOffset) == '\t');
     editor.getCaretModel().moveToOffset(caretOffset);
-    myOriginalHandler.execute(editor, dataContext);
+    myOriginalHandler.execute(editor, caret, dataContext);
     if (!editor.isInsertMode() || forceSkipIndent) {
       return;
     }

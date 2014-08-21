@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.keymap.impl;
 
+import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.components.*;
 import com.intellij.openapi.diagnostic.Logger;
@@ -27,6 +28,7 @@ import com.intellij.openapi.options.SchemesManager;
 import com.intellij.openapi.options.SchemesManagerFactory;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.util.containers.ContainerUtil;
 import org.jdom.Document;
 import org.jdom.Element;
@@ -35,6 +37,7 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.awt.event.KeyEvent;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
@@ -67,31 +70,39 @@ public class KeymapManagerImpl extends KeymapManagerEx implements PersistentStat
       "$ROOT_CONFIG$/keymaps",
       new BaseSchemeProcessor<KeymapImpl>() {
         @Override
-        public KeymapImpl readScheme(final Document schemeContent) throws InvalidDataException, IOException, JDOMException {
+        public KeymapImpl readScheme(@NotNull final Document schemeContent) throws InvalidDataException, IOException, JDOMException {
           return readKeymap(schemeContent);
         }
 
         @Override
-        public Document writeScheme(final KeymapImpl scheme) throws WriteExternalException {
+        public Document writeScheme(@NotNull final KeymapImpl scheme) throws WriteExternalException {
           return new Document(scheme.writeExternal());
         }
 
         @Override
-        public boolean shouldBeSaved(final KeymapImpl scheme) {
+        public boolean shouldBeSaved(@NotNull final KeymapImpl scheme) {
           return scheme.canModify();
         }
       },
       RoamingType.PER_USER);
 
     Keymap[] keymaps = defaultKeymap.getKeymaps();
+    String systemDefaultKeymap = defaultKeymap.getDefaultKeymapName();
     for (Keymap keymap : keymaps) {
       addKeymap(keymap);
-      String systemDefaultKeymap = defaultKeymap.getDefaultKeymapName();
       if (systemDefaultKeymap.equals(keymap.getName())) {
         setActiveKeymap(keymap);
       }
     }
     load();
+
+    if (Registry.is("editor.add.carets.on.double.control.arrows")) {
+      ModifierKeyDoubleClickHandler.getInstance().registerAction(IdeActions.ACTION_EDITOR_CLONE_CARET_ABOVE, KeyEvent.VK_CONTROL, KeyEvent.VK_UP);
+      ModifierKeyDoubleClickHandler.getInstance().registerAction(IdeActions.ACTION_EDITOR_CLONE_CARET_BELOW, KeyEvent.VK_CONTROL, KeyEvent.VK_DOWN);
+      ModifierKeyDoubleClickHandler.getInstance().registerAction(IdeActions.ACTION_EDITOR_MOVE_CARET_LEFT_WITH_SELECTION, KeyEvent.VK_CONTROL, KeyEvent.VK_LEFT);
+      ModifierKeyDoubleClickHandler.getInstance().registerAction(IdeActions.ACTION_EDITOR_MOVE_CARET_RIGHT_WITH_SELECTION, KeyEvent.VK_CONTROL, KeyEvent.VK_RIGHT);
+    }
+
     ourKeymapManagerInitialized = true;
   }
 
@@ -143,6 +154,10 @@ public class KeymapManagerImpl extends KeymapManagerEx implements PersistentStat
   @Override
   public void bindShortcuts(String sourceActionId, String targetActionId) {
     myBoundShortcuts.put(targetActionId, sourceActionId);
+  }
+
+  public void unbindShortcuts(String targetActionId) {
+    myBoundShortcuts.remove(targetActionId);
   }
 
   @Override
@@ -233,6 +248,7 @@ public class KeymapManagerImpl extends KeymapManagerEx implements PersistentStat
     mySchemesManager.loadSchemes();
   }
 
+  @NotNull
   private KeymapImpl readKeymap(Document document) throws JDOMException, InvalidDataException, IOException {
     if (document == null) throw new InvalidDataException();
     Element root = document.getRootElement();

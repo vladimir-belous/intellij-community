@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2013 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -204,34 +204,34 @@ public class JDOMUtil {
 
   @NotNull
   private static String intern(@NotNull final StringInterner interner, @NotNull final String s) {
-    synchronized (interner) {
-      return interner.intern(s);
-    }
+    return interner.intern(s);
   }
 
   @NotNull
-  public static String legalizeText(@NotNull final String str) {
-    StringReader reader = new StringReader(str);
-    StringBuilder result = new StringBuilder();
-
-    while(true) {
-      try {
-        int each = reader.read();
-        if (each == -1) break;
-
-        if (Verifier.isXMLCharacter(each)) {
-          result.append((char)each);
-        } else {
-          result.append("0x").append(StringUtil.toUpperCase(Long.toHexString(each)));
-        }
-      }
-      catch (IOException ignored) {
-      }
-    }
-
-    return result.toString().replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  public static String legalizeText(@NotNull String str) {
+    return legalizeChars(str).toString();
   }
 
+  @NotNull
+  public static CharSequence legalizeChars(@NotNull CharSequence str) {
+    StringBuilder result = new StringBuilder(str.length());
+    for (int i = 0, len = str.length(); i < len; i ++) {
+      appendLegalized(result, str.charAt(i));
+    }
+    return result;
+  }
+
+  public static void appendLegalized(@NotNull StringBuilder sb, char each) {
+    if (each == '<' || each == '>') {
+      sb.append(each == '<' ? "&lt;" : "&gt;");
+    }
+    else if (!Verifier.isXMLCharacter(each)) {
+      sb.append("0x").append(StringUtil.toUpperCase(Long.toHexString(each)));
+    }
+    else {
+      sb.append(each);
+    }
+  }
 
   private static class EmptyTextFilter implements Filter {
     @Override
@@ -315,7 +315,7 @@ public class JDOMUtil {
 
   private static SAXBuilder getSaxBuilder() {
     SoftReference<SAXBuilder> reference = ourSaxBuilder.get();
-    SAXBuilder saxBuilder = reference != null ? reference.get() : null;
+    SAXBuilder saxBuilder = com.intellij.reference.SoftReference.dereference(reference);
     if (saxBuilder == null) {
       saxBuilder = new SAXBuilder();
       saxBuilder.setEntityResolver(new EntityResolver() {
@@ -768,5 +768,9 @@ public class JDOMUtil {
       result.addContent(content.clone());
     }
     return hasContent ? result : null;
+  }
+
+  public static boolean isEmpty(@NotNull Element element) {
+    return element.getAttributes().isEmpty() && element.getContent().isEmpty();
   }
 }

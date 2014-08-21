@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.codeStyle.CodeStyleScheme;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CodeStyleSettingsProvider;
@@ -55,6 +56,9 @@ public class CodeStyleSchemesConfigurable extends SearchableConfigurable.Parent.
   public JComponent createComponent() {
     myModel = ensureModel();
 
+    if (Registry.is("ide.new.settings.dialog")) {
+      return myPanels == null || myPanels.isEmpty() ? null : myPanels.get(0).createComponent();
+    }
     return myRootSchemesPanel.getPanel();
   }
 
@@ -232,6 +236,14 @@ public class CodeStyleSchemesConfigurable extends SearchableConfigurable.Parent.
       }
     }
 
+    if (Registry.is("ide.new.settings.dialog")) {
+      int size = myPanels.size();
+      Configurable[] result = new Configurable[size > 0 ? size - 1 : 0];
+      for (int i = 0; i < result.length; i++) {
+        result[i] = myPanels.get(i + 1);
+      }
+      return result;
+    }
     return myPanels.toArray(new Configurable[myPanels.size()]);
   }
 
@@ -255,7 +267,7 @@ public class CodeStyleSchemesConfigurable extends SearchableConfigurable.Parent.
 
         @Override
         public void currentSettingsChanged() {
-          
+
         }
 
         @Override

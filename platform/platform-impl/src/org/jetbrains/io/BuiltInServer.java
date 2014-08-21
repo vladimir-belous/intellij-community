@@ -17,6 +17,7 @@ package org.jetbrains.io;
 
 import com.intellij.ide.XmlRpcServer;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.SystemInfo;
@@ -63,7 +64,9 @@ public class BuiltInServer implements Disposable {
     return port;
   }
 
-  static ServerBootstrap createServerBootstrap(EventLoopGroup eventLoopGroup, final ChannelRegistrar channelRegistrar, @Nullable Map<String, Object> xmlRpcHandlers) {
+  static ServerBootstrap createServerBootstrap(@NotNull EventLoopGroup eventLoopGroup,
+                                               @NotNull final ChannelRegistrar channelRegistrar,
+                                               @Nullable Map<String, Object> xmlRpcHandlers) {
     ServerBootstrap bootstrap = NettyUtil.nioServerBootstrap(eventLoopGroup);
     if (xmlRpcHandlers == null) {
       final PortUnificationServerHandler portUnificationServerHandler = new PortUnificationServerHandler();
@@ -80,7 +83,7 @@ public class BuiltInServer implements Disposable {
         @Override
         protected void initChannel(Channel channel) throws Exception {
           channel.pipeline().addLast(channelRegistrar);
-          NettyUtil.initHttpHandlers(channel.pipeline());
+          NettyUtil.addHttpServerCodec(channel.pipeline());
           channel.pipeline().addLast(handler, ChannelExceptionHandler.getInstance());
         }
       });
@@ -89,6 +92,10 @@ public class BuiltInServer implements Disposable {
   }
 
   private void bindCustomPorts(int firstPort, int port, NioEventLoopGroup eventLoopGroup) {
+    if (ApplicationManager.getApplication().isUnitTestMode()) {
+      return;
+    }
+
     for (CustomPortServerManager customPortServerManager : CustomPortServerManager.EP_NAME.getExtensions()) {
       try {
         int customPortServerManagerPort = customPortServerManager.getPort();
@@ -154,8 +161,8 @@ public class BuiltInServer implements Disposable {
     LOG.info("web server stopped");
   }
 
-  public static void replaceDefaultHandler(@NotNull ChannelHandlerContext context, @NotNull SimpleChannelInboundHandler messageChannelHandler) {
-    context.pipeline().replace(DelegatingHttpRequestHandler.class, "replacedDefaultHandler", messageChannelHandler);
+  public static void replaceDefaultHandler(@NotNull ChannelHandlerContext context, @NotNull ChannelHandler channelHandler) {
+    context.pipeline().replace(DelegatingHttpRequestHandler.class, "replacedDefaultHandler", channelHandler);
   }
 
   @ChannelHandler.Sharable
@@ -168,7 +175,7 @@ public class BuiltInServer implements Disposable {
 
     @Override
     protected boolean process(ChannelHandlerContext context, FullHttpRequest request, QueryStringDecoder urlDecoder) throws IOException {
-      return (request.getMethod() == HttpMethod.POST || request.getMethod() == HttpMethod.OPTIONS) &&
+      return (request.method() == HttpMethod.POST || request.method() == HttpMethod.OPTIONS) &&
              XmlRpcServer.SERVICE.getInstance().process(urlDecoder.path(), request, context, handlers);
     }
   }

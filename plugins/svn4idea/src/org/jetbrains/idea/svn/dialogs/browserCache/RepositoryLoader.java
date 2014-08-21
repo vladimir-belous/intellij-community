@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,15 +20,17 @@ import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.vcs.VcsException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.svn.SvnVcs;
+import org.jetbrains.idea.svn.api.Depth;
+import org.jetbrains.idea.svn.auth.SvnAuthenticationProvider;
+import org.jetbrains.idea.svn.browse.DirectoryEntry;
+import org.jetbrains.idea.svn.browse.DirectoryEntryConsumer;
 import org.jetbrains.idea.svn.dialogs.RepositoryTreeNode;
-import org.jetbrains.idea.svn.dialogs.SvnAuthenticationProvider;
-import org.tmatesoft.svn.core.ISVNDirEntryHandler;
-import org.tmatesoft.svn.core.SVNDirEntry;
-import org.tmatesoft.svn.core.SVNErrorMessage;
-import org.tmatesoft.svn.core.SVNException;
-import org.tmatesoft.svn.core.io.SVNRepository;
+import org.tmatesoft.svn.core.*;
+import org.tmatesoft.svn.core.wc.SVNRevision;
+import org.tmatesoft.svn.core.wc2.SvnTarget;
 
 import javax.swing.*;
 import java.util.*;
@@ -48,7 +50,7 @@ class RepositoryLoader extends Loader {
   public void load(final RepositoryTreeNode node, final Expander afterRefreshExpander) {
     ApplicationManager.getApplication().assertIsDispatchThread();
 
-    final Pair<RepositoryTreeNode, Expander> data = new Pair<RepositoryTreeNode, Expander>(node, afterRefreshExpander);
+    final Pair<RepositoryTreeNode, Expander> data = Pair.create(node, afterRefreshExpander);
     if (! myQueueProcessorActive) {
       startLoadTask(data);
       myQueueProcessorActive = true;
@@ -57,12 +59,12 @@ class RepositoryLoader extends Loader {
     }
   }
 
-  private void setResults(final Pair<RepositoryTreeNode, Expander> data, final List<SVNDirEntry> children) {
+  private void setResults(final Pair<RepositoryTreeNode, Expander> data, final List<DirectoryEntry> children) {
     myCache.put(data.first.getURL().toString(), children);
     refreshNode(data.first, children, data.second);
   }
 
-  private void setError(final Pair<RepositoryTreeNode, Expander> data, final SVNErrorMessage message) {
+  private void setError(final Pair<RepositoryTreeNode, Expander> data, final String message) {
     myCache.put(data.first.getURL().toString(), message);
     refreshNodeError(data.first, message);
   }
@@ -115,36 +117,37 @@ class RepositoryLoader extends Loader {
     }
 
     public void run() {
-      final Collection<SVNDirEntry> entries = new TreeSet<SVNDirEntry>();
+      final Collection<DirectoryEntry> entries = new TreeSet<DirectoryEntry>();
       final RepositoryTreeNode node = myData.first;
       final SvnVcs vcs = node.getVcs();
-      SVNRepository repository = null;
       SvnAuthenticationProvider.forceInteractive();
+
+      DirectoryEntryConsumer handler = new DirectoryEntryConsumer() {
+
+        @Override
+        public void consume(final DirectoryEntry entry) throws SVNException {
+          entries.add(entry);
+        }
+      };
       try {
-        repository = vcs.createRepository(node.getURL().toString());
-        repository.getDir("", -1, null, new ISVNDirEntryHandler() {
-          public void handleDirEntry(final SVNDirEntry dirEntry) throws SVNException {
-            entries.add(dirEntry);
-          }
-        });
-      } catch (final SVNException e) {
+        SvnTarget target = SvnTarget.fromURL(node.getURL());
+        vcs.getFactoryFromSettings().createBrowseClient().list(target, SVNRevision.HEAD, Depth.IMMEDIATES, handler);
+      }
+      catch (final VcsException e) {
         SwingUtilities.invokeLater(new Runnable() {
           public void run() {
-            setError(myData, e.getErrorMessage());
+            setError(myData, e.getMessage());
             startNext();
           }
         });
         return;
       } finally {
         SvnAuthenticationProvider.clearInteractive();
-        if (repository != null) {
-          repository.closeSession();
-        }
       }
 
       SwingUtilities.invokeLater(new Runnable() {
         public void run() {
-          setResults(myData, new ArrayList<SVNDirEntry>(entries));
+          setResults(myData, new ArrayList<DirectoryEntry>(entries));
           startNext();
         }
       });

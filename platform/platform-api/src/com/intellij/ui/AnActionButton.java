@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,17 @@
  */
 package com.intellij.ui;
 
+import com.intellij.ide.DataManager;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.ui.awt.RelativePoint;
+import com.intellij.util.containers.SmartHashSet;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -103,7 +105,7 @@ public abstract class AnActionButton extends AnAction implements ShortcutProvide
   
   public final void addCustomUpdater(@NotNull AnActionButtonUpdater updater) {
     if (myUpdaters == null) {
-      myUpdaters = new HashSet<AnActionButtonUpdater>();
+      myUpdaters = new SmartHashSet<AnActionButtonUpdater>();
     }
     myUpdaters.add(updater);
   }
@@ -128,6 +130,10 @@ public abstract class AnActionButton extends AnAction implements ShortcutProvide
 
   public JComponent getContextComponent() {
     return myContextComponent;
+  }
+
+  public DataContext getDataContext() {
+    return DataManager.getInstance().getDataContext(getContextComponent());
   }
 
   private boolean isContextComponentOk() {
@@ -182,7 +188,7 @@ public abstract class AnActionButton extends AnAction implements ShortcutProvide
 
     @Override
     public void actionPerformed(AnActionEvent e) {
-      myAction.actionPerformed(e);
+      myAction.actionPerformed(new AnActionEventWrapper(e, this));
     }
 
     @Override
@@ -194,5 +200,26 @@ public abstract class AnActionButton extends AnAction implements ShortcutProvide
         super.updateButton(e);
       }
     }
+
+    @Override
+    public boolean isDumbAware() {
+      return myAction.isDumbAware();
+    }
+  }
+
+  public static class AnActionEventWrapper extends AnActionEvent {
+    private final AnActionButton myPeer;
+
+    private AnActionEventWrapper(AnActionEvent e, AnActionButton peer) {
+      super(e.getInputEvent(), e.getDataContext(), e.getPlace(), e.getPresentation(), e.getActionManager(), e.getModifiers());
+      myPeer = peer;
+    }
+
+    public void showPopup(JBPopup popup) {
+      popup.show(myPeer.getPreferredPopupPoint());
+    }
+
+
+
   }
 }

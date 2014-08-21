@@ -15,6 +15,8 @@
  */
 package com.siyeh.ig.style;
 
+import com.intellij.codeInsight.javadoc.JavaDocUtil;
+import com.intellij.codeInspection.CleanupLocalInspectionTool;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -42,7 +44,7 @@ import java.util.List;
 /**
  * @see com.siyeh.ipp.fqnames.ReplaceFullyQualifiedNameWithImportIntention
  */
-public class UnnecessaryFullyQualifiedNameInspection extends BaseInspection {
+public class UnnecessaryFullyQualifiedNameInspection extends BaseInspection implements CleanupLocalInspectionTool {
 
   @SuppressWarnings("PublicField")
   public boolean m_ignoreJavadoc = false; // left here to prevent changes to project files.
@@ -204,11 +206,8 @@ public class UnnecessaryFullyQualifiedNameInspection extends BaseInspection {
         return;
       }
       final CodeStyleSettings styleSettings = CodeStyleSettingsManager.getSettings(reference.getProject());
-      if (styleSettings.USE_FQ_CLASS_NAMES_IN_JAVADOC) {
-        final PsiElement containingComment = PsiTreeUtil.getParentOfType(reference, PsiDocComment.class);
-        if (containingComment != null) {
-          return;
-        }
+      if (acceptFullyQualifiedNamesInJavadoc(reference, styleSettings)) {
+        return;
       }
       final PsiFile containingFile = reference.getContainingFile();
       if (!(containingFile instanceof PsiJavaFile)) {
@@ -259,5 +258,15 @@ public class UnnecessaryFullyQualifiedNameInspection extends BaseInspection {
         rParent = rParent.getParent();
       }
     }
+  }
+
+  public static boolean acceptFullyQualifiedNamesInJavadoc(PsiJavaCodeReferenceElement reference, CodeStyleSettings styleSettings) {
+    final PsiDocComment containingComment = PsiTreeUtil.getParentOfType(reference, PsiDocComment.class);
+    if (containingComment != null) {
+      if (styleSettings.USE_FQ_CLASS_NAMES_IN_JAVADOC || JavaDocUtil.isInsidePackageInfo(containingComment)) {
+        return true;
+      }
+    }
+    return false;
   }
 }

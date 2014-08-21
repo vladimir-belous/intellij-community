@@ -16,6 +16,7 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.StringInterner;
+import com.intellij.util.containers.WeakStringInterner;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -33,7 +34,7 @@ public class RunConfigurationExtensionsManager<U extends RunConfigurationBase, T
   private static final String EXT_ID_ATTR = "ID";
   private static final String EXTENSION_ROOT_ATTR = "EXTENSION";
   protected final ExtensionPointName<T> myExtensionPointName;
-  private final StringInterner myInterner = new StringInterner();
+  private final StringInterner myInterner = new WeakStringInterner();
 
   public RunConfigurationExtensionsManager(ExtensionPointName<T> extensionPointName) {
     myExtensionPointName = extensionPointName;
@@ -160,7 +161,7 @@ public class RunConfigurationExtensionsManager<U extends RunConfigurationBase, T
     }
   }
 
-  private List<T> getApplicableExtensions(@NotNull final U configuration) {
+  protected List<T> getApplicableExtensions(@NotNull final U configuration) {
     final List<T> extensions = new ArrayList<T>();
     for (T extension : Extensions.getExtensions(myExtensionPointName)) {
       if (extension.isApplicableFor(configuration)) {
@@ -170,7 +171,7 @@ public class RunConfigurationExtensionsManager<U extends RunConfigurationBase, T
     return extensions;
   }
 
-  private List<T> getEnabledExtensions(@NotNull final U configuration, @Nullable RunnerSettings runnerSettings) {
+  protected List<T> getEnabledExtensions(@NotNull final U configuration, @Nullable RunnerSettings runnerSettings) {
     final List<T> extensions = new ArrayList<T>();
     for (T extension : Extensions.getExtensions(myExtensionPointName)) {
       if (extension.isApplicableFor(configuration) && extension.isEnabledFor(configuration, runnerSettings)) {

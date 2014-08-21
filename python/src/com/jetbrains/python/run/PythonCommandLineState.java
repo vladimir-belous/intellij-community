@@ -21,10 +21,7 @@ import com.intellij.execution.DefaultExecutionResult;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.ExecutionResult;
 import com.intellij.execution.Executor;
-import com.intellij.execution.configurations.CommandLineState;
-import com.intellij.execution.configurations.GeneralCommandLine;
-import com.intellij.execution.configurations.ParametersList;
-import com.intellij.execution.configurations.RunnerSettings;
+import com.intellij.execution.configurations.*;
 import com.intellij.execution.filters.Filter;
 import com.intellij.execution.filters.TextConsoleBuilder;
 import com.intellij.execution.filters.TextConsoleBuilderFactory;
@@ -38,14 +35,20 @@ import com.intellij.facet.Facet;
 import com.intellij.facet.FacetManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleUtil;
+import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.SdkAdditionalData;
 import com.intellij.openapi.roots.*;
+import com.intellij.openapi.roots.impl.libraries.LibraryImpl;
+import com.intellij.openapi.roots.libraries.Library;
+import com.intellij.openapi.roots.libraries.PersistentLibraryKind;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.remote.RemoteProcessHandlerBase;
+import com.intellij.util.PlatformUtils;
 import com.intellij.util.containers.HashMap;
 import com.jetbrains.python.PythonHelpersLocator;
 import com.jetbrains.python.console.PyDebugConsoleBuilder;
@@ -53,6 +56,7 @@ import com.jetbrains.python.debugger.PyDebugRunner;
 import com.jetbrains.python.debugger.PyDebuggerOptionsProvider;
 import com.jetbrains.python.facet.LibraryContributingFacet;
 import com.jetbrains.python.facet.PythonPathContributingFacet;
+import com.jetbrains.python.library.PythonLibraryType;
 import com.jetbrains.python.sdk.PySdkUtil;
 import com.jetbrains.python.sdk.PythonEnvUtil;
 import com.jetbrains.python.sdk.PythonSdkAdditionalData;
@@ -77,11 +81,13 @@ public abstract class PythonCommandLineState extends CommandLineState {
   public static final String GROUP_DEBUGGER = "Debugger";
   public static final String GROUP_SCRIPT = "Script";
   private final AbstractPythonRunConfiguration myConfig;
-  private final List<Filter> myFilters;
+
+  private final List<Filter> myFilters = Lists.<Filter>newArrayList(new UrlFilter());
+
   private Boolean myMultiprocessDebug = null;
 
   public boolean isDebug() {
-    return PyDebugRunner.PY_DEBUG_RUNNER.equals(getEnvironment().getRunnerId());
+    return PyDebugRunner.PY_DEBUG_RUNNER.equals(getEnvironment().getRunner().getRunnerId());
   }
 
   public static ServerSocket createServerSocket() throws ExecutionException {
@@ -96,15 +102,9 @@ public abstract class PythonCommandLineState extends CommandLineState {
     return serverSocket;
   }
 
-  public PythonCommandLineState(AbstractPythonRunConfiguration runConfiguration, ExecutionEnvironment env, List<Filter> filters) {
+  public PythonCommandLineState(AbstractPythonRunConfiguration runConfiguration, ExecutionEnvironment env) {
     super(env);
     myConfig = runConfiguration;
-    myFilters = Lists.newArrayList(filters);
-    addDefaultFilters();
-  }
-
-  protected void addDefaultFilters() {
-    myFilters.add(new UrlFilter());
   }
 
   @Nullable
@@ -131,8 +131,21 @@ public abstract class PythonCommandLineState extends CommandLineState {
   protected ConsoleView createAndAttachConsole(Project project, ProcessHandler processHandler, Executor executor)
     throws ExecutionException {
     final ConsoleView consoleView = createConsoleBuilder(project).filters(myFilters).getConsole();
+
+    addTracebackFilter(project, consoleView, processHandler);
+
     consoleView.attachToProcess(processHandler);
     return consoleView;
+  }
+
+  protected void addTracebackFilter(Project project, ConsoleView consoleView, ProcessHandler processHandler) {
+    if (PySdkUtil.isRemote(myConfig.getSdk())) {
+      assert processHandler instanceof RemoteProcessHandlerBase;
+      consoleView.addMessageFilter(new PyRemoteTracebackFilter(project, myConfig.getWorkingDirectory(), (RemoteProcessHandlerBase) processHandler));
+    }
+    else {
+      consoleView.addMessageFilter(new PythonTracebackFilter(project, myConfig.getWorkingDirectory()));
+    }
   }
 
   private TextConsoleBuilder createConsoleBuilder(Project project) {
@@ -147,7 +160,7 @@ public abstract class PythonCommandLineState extends CommandLineState {
   @Override
   @NotNull
   protected ProcessHandler startProcess() throws ExecutionException {
-    return startProcess(null);
+    return startProcess(new CommandLinePatcher[]{});
   }
 
   /**
@@ -158,27 +171,18 @@ public abstract class PythonCommandLineState extends CommandLineState {
    * @throws ExecutionException
    */
   protected ProcessHandler startProcess(CommandLinePatcher... patchers) throws ExecutionException {
-
-
     GeneralCommandLine commandLine = generateCommandLine(patchers);
 
     // Extend command line
-    RunnerSettings runnerSettings = getRunnerSettings();
-    String runnerId = getEnvironment().getRunnerId();
-    if (runnerId != null) {
-      PythonRunConfigurationExtensionsManager.getInstance().patchCommandLine(myConfig, runnerSettings, commandLine, runnerId);
-    }
-
+    PythonRunConfigurationExtensionsManager.getInstance().patchCommandLine(myConfig, getRunnerSettings(), commandLine, getEnvironment().getRunner().getRunnerId());
     Sdk sdk = PythonSdkType.findSdkByPath(myConfig.getInterpreterPath());
-
-
     final ProcessHandler processHandler;
     if (PySdkUtil.isRemote(sdk)) {
-      assert sdk != null;
       processHandler =
         createRemoteProcessStarter().startRemoteProcess(sdk, commandLine, myConfig.getProject(), myConfig.getMappingSettings());
     }
     else {
+      EncodingEnvironmentUtil.fixDefaultEncodingIfMac(commandLine, myConfig.getProject());
       processHandler = doCreateProcess(commandLine);
       ProcessTerminatedListener.attach(processHandler);
     }
@@ -209,7 +213,7 @@ public abstract class PythonCommandLineState extends CommandLineState {
   }
 
   public GeneralCommandLine generateCommandLine() throws ExecutionException {
-    GeneralCommandLine commandLine = new GeneralCommandLine();
+    GeneralCommandLine commandLine = createCommandLine();
 
     setRunnerPath(commandLine);
 
@@ -220,6 +224,10 @@ public abstract class PythonCommandLineState extends CommandLineState {
 
     initEnvironment(commandLine);
     return commandLine;
+  }
+
+  private static GeneralCommandLine createCommandLine() {
+    return Registry.is("run.processes.with.pty") ? new PtyCommandLine() : new GeneralCommandLine();
   }
 
   /**
@@ -348,7 +356,7 @@ public abstract class PythonCommandLineState extends CommandLineState {
     Collection<String> pythonPathList = Sets.newLinkedHashSet();
     if (module != null) {
       Set<Module> dependencies = new HashSet<Module>();
-      ModuleUtil.getDependencies(module, dependencies);
+      ModuleUtilCore.getDependencies(module, dependencies);
 
       if (addContentRoots) {
         addRoots(pythonPathList, ModuleRootManager.getInstance(module).getContentRoots());
@@ -383,7 +391,16 @@ public abstract class PythonCommandLineState extends CommandLineState {
           continue;
         }
         for (VirtualFile root : ((LibraryOrderEntry)entry).getRootFiles(OrderRootType.CLASSES)) {
-          addToPythonPath(root, list);
+          final Library library = ((LibraryOrderEntry)entry).getLibrary();
+          if (!PlatformUtils.isPyCharm()) {
+            addToPythonPath(root, list);
+          }
+          else if (library instanceof LibraryImpl) {
+            final PersistentLibraryKind<?> kind = ((LibraryImpl)library).getKind();
+            if (kind == PythonLibraryType.getInstance().getKind()) {
+              addToPythonPath(root, list);
+            }
+          }
         }
       }
     }

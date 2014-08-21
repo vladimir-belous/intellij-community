@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,16 +21,20 @@ import com.intellij.lang.annotation.Annotation;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.util.Iconable;
 import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiField;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.DomFileDescription;
 import com.intellij.util.xml.DomUtil;
 import com.intellij.util.xml.GenericAttributeValue;
 import com.intellij.util.xml.highlighting.DomElementAnnotationHolder;
 import com.intellij.util.xml.highlighting.DomElementsAnnotator;
+import com.intellij.util.xml.reflect.DomAttributeChildDescription;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.devkit.dom.*;
 
 import javax.swing.*;
+import java.util.List;
 
 /**
  * @author mike
@@ -49,6 +53,19 @@ public class PluginXmlDomFileDescription extends DomFileDescription<IdeaPlugin> 
       else if (element instanceof IdeaVersion) {
         annotateIdeaVersion((IdeaVersion)element, holder);
       }
+      else if (element instanceof Extensions) {
+        annotateExtensions((Extensions)element, holder);
+      }
+    }
+
+    private void annotateExtensions(Extensions extensions, DomElementAnnotationHolder holder) {
+      final GenericAttributeValue<IdeaPlugin> xmlnsAttribute = extensions.getXmlns();
+      if (!DomUtil.hasXml(xmlnsAttribute)) return;
+
+      final Annotation annotation = holder.createAnnotation(xmlnsAttribute,
+                                                            HighlightSeverity.WARNING,
+                                                            "Use defaultExtensionNs instead");
+      annotation.setHighlightType(ProblemHighlightType.LIKE_DEPRECATED);
     }
 
     private void annotateIdeaVersion(IdeaVersion ideaVersion, DomElementAnnotationHolder holder) {
@@ -60,12 +77,29 @@ public class PluginXmlDomFileDescription extends DomFileDescription<IdeaPlugin> 
       final ExtensionPoint extensionPoint = extension.getExtensionPoint();
       if (extensionPoint == null) return;
       final GenericAttributeValue<PsiClass> interfaceAttribute = extensionPoint.getInterface();
-      if (!DomUtil.hasXml(interfaceAttribute)) return;
+      if (DomUtil.hasXml(interfaceAttribute)) {
+        final PsiClass value = interfaceAttribute.getValue();
+        if (value != null && value.isDeprecated()) {
+          final Annotation annotation = holder.createAnnotation(extension, HighlightSeverity.WARNING, "Deprecated EP");
+          annotation.setHighlightType(ProblemHighlightType.LIKE_DEPRECATED);
+          return;
+        }
+      }
 
-      final PsiClass value = interfaceAttribute.getValue();
-      if (value != null && value.isDeprecated()) {
-        final Annotation annotation = holder.createAnnotation(extension, HighlightSeverity.WARNING, "Deprecated EP");
-        annotation.setHighlightType(ProblemHighlightType.LIKE_DEPRECATED);
+      final List<? extends DomAttributeChildDescription> descriptions = extension.getGenericInfo().getAttributeChildrenDescriptions();
+      for (DomAttributeChildDescription attributeDescription : descriptions) {
+        final GenericAttributeValue attributeValue = attributeDescription.getDomAttributeValue(extension);
+        if (attributeValue == null || !DomUtil.hasXml(attributeValue)) continue;
+
+        final PsiElement declaration = attributeDescription.getDeclaration(extension.getManager().getProject());
+        if (declaration instanceof PsiField) {
+          PsiField psiField = (PsiField)declaration;
+          if (psiField.isDeprecated()) {
+            final Annotation annotation = holder.createAnnotation(attributeValue, HighlightSeverity.WARNING,
+                                                                  "Deprecated attribute '" + attributeDescription.getName() + "'");
+            annotation.setHighlightType(ProblemHighlightType.LIKE_DEPRECATED);
+          }
+        }
       }
     }
 
@@ -106,6 +140,6 @@ public class PluginXmlDomFileDescription extends DomFileDescription<IdeaPlugin> 
 
   @Override
   public int getStubVersion() {
-    return 2;
+    return 3;
   }
 }

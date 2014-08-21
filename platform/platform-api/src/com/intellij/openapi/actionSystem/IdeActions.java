@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +36,8 @@ public interface IdeActions {
   @NonNls String ACTION_EDITOR_SELECT_WORD_AT_CARET = "EditorSelectWord";
   @NonNls String ACTION_EDITOR_UNSELECT_WORD_AT_CARET = "EditorUnSelectWord";
   @NonNls String ACTION_EDITOR_BACKSPACE = "EditorBackSpace";
+  @NonNls String ACTION_EDITOR_MOVE_CARET_LEFT_WITH_SELECTION = "EditorLeftWithSelection";
+  @NonNls String ACTION_EDITOR_MOVE_CARET_RIGHT_WITH_SELECTION = "EditorRightWithSelection";
   @NonNls String ACTION_EDITOR_MOVE_CARET_UP = "EditorUp";
   @NonNls String ACTION_EDITOR_MOVE_CARET_LEFT = "EditorLeft";
   @NonNls String ACTION_EDITOR_MOVE_CARET_DOWN = "EditorDown";
@@ -49,6 +51,9 @@ public interface IdeActions {
   @NonNls String ACTION_EDITOR_JOIN_LINES = "EditorJoinLines";
   @NonNls String ACTION_EDITOR_COMPLETE_STATEMENT = "EditorCompleteStatement";
   @NonNls String ACTION_EDITOR_USE_SOFT_WRAPS = "EditorToggleUseSoftWraps";
+  @NonNls String ACTION_EDITOR_ADD_OR_REMOVE_CARET= "EditorAddOrRemoveCaret";
+  @NonNls String ACTION_EDITOR_CLONE_CARET_BELOW= "EditorCloneCaretBelow";
+  @NonNls String ACTION_EDITOR_CLONE_CARET_ABOVE= "EditorCloneCaretAbove";
 
   @NonNls String ACTION_EDITOR_NEXT_TEMPLATE_VARIABLE = "NextTemplateVariable";
   @NonNls String ACTION_EDITOR_PREVIOUS_TEMPLATE_VARIABLE = "PreviousTemplateVariable";
@@ -71,8 +76,8 @@ public interface IdeActions {
   @NonNls String ACTION_SMART_TYPE_COMPLETION = "SmartTypeCompletion";
   @Deprecated @NonNls String ACTION_CLASS_NAME_COMPLETION = "ClassNameCompletion";
   @NonNls String ACTION_HIPPIE_COMPLETION = "HippieCompletion";
+  @NonNls String ACTION_HIPPIE_BACKWARD_COMPLETION = "HippieBackwardCompletion";
   @NonNls String ACTION_CHOOSE_LOOKUP_ITEM = "EditorChooseLookupItem";
-  @NonNls String ACTION_CHOOSE_LOOKUP_ITEM_ALWAYS = "EditorChooseLookupItemAlways";
   @NonNls String ACTION_CHOOSE_LOOKUP_ITEM_REPLACE = "EditorChooseLookupItemReplace";
   @NonNls String ACTION_CHOOSE_LOOKUP_ITEM_COMPLETE_STATEMENT = "EditorChooseLookupItemCompleteStatement";
   @NonNls String ACTION_CHOOSE_LOOKUP_ITEM_DOT = "EditorChooseLookupItemDot";
@@ -113,6 +118,9 @@ public interface IdeActions {
   @NonNls String ACTION_FIND = "Find";
   @NonNls String ACTION_FIND_NEXT = "FindNext";
   @NonNls String ACTION_FIND_PREVIOUS = "FindPrevious";
+  @NonNls String ACTION_SELECT_NEXT_OCCURENCE = "SelectNextOccurrence";
+  @NonNls String ACTION_SELECT_ALL_OCCURRENCES = "SelectAllOccurrences";
+  @NonNls String ACTION_UNSELECT_PREVIOUS_OCCURENCE = "UnselectPreviousOccurrence";
   @NonNls String ACTION_COMPILE = "Compile";
   @NonNls String ACTION_COMPILE_PROJECT = "CompileProject";
   @NonNls String ACTION_MAKE_MODULE = "MakeModule";
@@ -186,6 +194,8 @@ public interface IdeActions {
   @NonNls String GROUP_OTHER_MENU = "OtherMenu";
   @NonNls String GROUP_EDITOR = "EditorActions";
   @NonNls String GROUP_DEBUGGER = "DebuggerActions";
+  
+  @NonNls String ACTION_TOGGLE_LINE_BREAKPOINT = "ToggleLineBreakpoint";
 
   @NonNls String ACTION_REFRESH = "Refresh";
 
@@ -261,6 +271,7 @@ public interface IdeActions {
   String ACTION_UNDO = "$Undo";
   String ACTION_REDO = "$Redo";
   String GROUP_REFACTOR = "RefactoringMenu";
+  String SELECTED_CHANGES_ROLLBACK = "Vcs.RollbackChangedLines";
   String CHANGES_VIEW_ROLLBACK = "ChangesView.Rollback";
 
   String CONSOLE_CLEAR_ALL = "ConsoleView.ClearAll";

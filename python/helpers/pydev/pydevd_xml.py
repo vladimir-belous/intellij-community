@@ -1,13 +1,16 @@
 import pydev_log
 import traceback
 import pydevd_resolver
+import sys
 from pydevd_constants import * #@UnusedWildImport
-from types import * #@UnusedWildImport
+
+from pydev_imports import quote
 
 try:
-    from urllib import quote
+    import types
+    frame_type = types.FrameType
 except:
-    from urllib.parse import quote #@UnresolvedImport
+    frame_type = None
 
 try:
     from xml.sax.saxutils import escape
@@ -60,9 +63,18 @@ if not sys.platform.startswith("java"):
     except:
         pass #not available on all python versions
 
+    try:
+        import numpy
+        typeMap.append((numpy.ndarray, pydevd_resolver.ndarrayResolver))
+    except:
+        pass  #numpy may not be installed
+
+    if frame_type is not None:
+        typeMap.append((frame_type, pydevd_resolver.frameResolver))
+
+
 else: #platform is java
     from org.python import core #@UnresolvedImport
-
     typeMap = [
             (core.PyNone, None),
             (core.PyInteger, None),
@@ -98,20 +110,21 @@ def getType(o):
         return 'Unable to get Type', 'Unable to get Type', None
 
     try:
+
         if type_name == 'org.python.core.PyJavaInstance':
-            return type_object, type_name, pydevd_resolver.instanceResolver
+            return (type_object, type_name, pydevd_resolver.instanceResolver)
 
         if type_name == 'org.python.core.PyArray':
-            return type_object, type_name, pydevd_resolver.jyArrayResolver
+            return (type_object, type_name, pydevd_resolver.jyArrayResolver)
 
         for t in typeMap:
             if isinstance(o, t[0]):
-                return type_object, type_name, t[1]
+                return (type_object, type_name, t[1])
     except:
         traceback.print_exc()
 
     #no match return default
-    return type_object, type_name, pydevd_resolver.defaultResolver
+    return (type_object, type_name, pydevd_resolver.defaultResolver)
 
 def frameVarsToXML(frame_f_locals):
     """ dumps frame variables to XML
@@ -134,9 +147,9 @@ def frameVarsToXML(frame_f_locals):
             pydev_log.error("Unexpected error, recovered safely.\n")
 
     return xml
-    
-    
-def varToXML(val, name, doTrim=True):
+
+
+def varToXML(val, name, doTrim=True, additionalInXml=''):
     """ single variable or dictionary to xml representation """
 
     is_exception_on_eval = isinstance(val, ExceptionOnEvaluate)
@@ -150,19 +163,22 @@ def varToXML(val, name, doTrim=True):
 
     try:
         if hasattr(v, '__class__'):
-            try:
-                cName = str(v.__class__)
-                if cName.find('.') != -1:
-                    cName = cName.split('.')[-1]
+            if v.__class__ == frame_type:
+                value = pydevd_resolver.frameResolver.getFrameName(v)
+            else:
+                try:
+                    cName = str(v.__class__)
+                    if cName.find('.') != -1:
+                        cName = cName.split('.')[-1]
 
-                elif cName.find("'") != -1: #does not have '.' (could be something like <type 'int'>)
-                    cName = cName[cName.index("'") + 1:]
+                    elif cName.find("'") != -1: #does not have '.' (could be something like <type 'int'>)
+                        cName = cName[cName.index("'") + 1:]
 
-                if cName.endswith("'>"):
-                    cName = cName[:-2]
-            except:
-                cName = str(v.__class__)
-            value = '%s: %s' % (cName, v)
+                    if cName.endswith("'>"):
+                        cName = cName[:-2]
+                except:
+                    cName = str(v.__class__)
+                value = '%s: %s' % (cName, v)
         else:
             value = str(v)
     except:
@@ -206,4 +222,13 @@ def varToXML(val, name, doTrim=True):
         else:
             xmlCont = ''
 
-    return ''.join((xml, xmlValue, xmlCont, ' />\n'))
+    return ''.join((xml, xmlValue, xmlCont, additionalInXml, ' />\n'))
+
+if USE_PSYCO_OPTIMIZATION:
+    try:
+        import psyco
+
+        varToXML = psyco.proxy(varToXML)
+    except ImportError:
+        if hasattr(sys, 'exc_clear'): #jython does not have it
+            sys.exc_clear() #don't keep the traceback -- clients don't want to see it

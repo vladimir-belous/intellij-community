@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,6 @@ import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.wm.WindowManager;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
@@ -40,7 +39,9 @@ import com.intellij.refactoring.safeDelete.usageInfo.SafeDeleteCustomUsageInfo;
 import com.intellij.refactoring.safeDelete.usageInfo.SafeDeleteReferenceSimpleDeleteUsageInfo;
 import com.intellij.refactoring.safeDelete.usageInfo.SafeDeleteReferenceUsageInfo;
 import com.intellij.refactoring.safeDelete.usageInfo.SafeDeleteUsageInfo;
-import com.intellij.refactoring.util.*;
+import com.intellij.refactoring.util.NonCodeSearchDescriptionLocation;
+import com.intellij.refactoring.util.RefactoringUIUtil;
+import com.intellij.refactoring.util.TextOccurrencesUtil;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewDescriptor;
 import com.intellij.usageView.UsageViewUtil;
@@ -279,7 +280,7 @@ public class SafeDeleteProcessor extends BaseRefactoringProcessor {
     }
 
     return manager.showUsages(targets,
-                              UsageInfoToUsageConverter.convert(new UsageInfoToUsageConverter.TargetElementsDescriptor(myElements), usages),
+                              UsageInfoToUsageConverter.convert(myElements, usages),
                               presentation
     );
   }
@@ -352,8 +353,7 @@ public class SafeDeleteProcessor extends BaseRefactoringProcessor {
 
   @Override
   protected boolean isPreviewUsages(UsageInfo[] usages) {
-    if(myPreviewNonCodeUsages && (UsageViewUtil.hasNonCodeUsages(usages) || UsageViewUtil.hasUsagesInGeneratedCode(usages, myProject))) {
-      WindowManager.getInstance().getStatusBar(myProject).setInfo(RefactoringBundle.message("occurrences.found.in.comments.strings.non.java.files.and.generated.code"));
+    if(myPreviewNonCodeUsages && UsageViewUtil.reportNonRegularUsages(usages, myProject)) {
       return true;
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,7 @@
  */
 package com.intellij.codeInsight.completion;
 
-import com.intellij.codeInsight.generation.GenerateMembersUtil;
-import com.intellij.codeInsight.generation.OverrideImplementExploreUtil;
-import com.intellij.codeInsight.generation.OverrideImplementUtil;
-import com.intellij.codeInsight.generation.PsiGenerationInfo;
+import com.intellij.codeInsight.generation.*;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.icons.AllIcons;
@@ -35,6 +32,7 @@ import com.intellij.util.containers.ContainerUtil;
 
 import javax.swing.*;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
@@ -70,8 +68,8 @@ public class JavaGenerateMemberCompletionContributor {
     List<PsiMethod> prototypes = ContainerUtil.newArrayList();
     for (PsiField field : parent.getFields()) {
       if (!(field instanceof PsiEnumConstant)) {
-        prototypes.add(GenerateMembersUtil.generateGetterPrototype(field));
-        prototypes.add(GenerateMembersUtil.generateSetterPrototype(field));
+        Collections.addAll(prototypes, GetterSetterPrototypeProvider.generateGetterSetters(field, true));
+        Collections.addAll(prototypes, GetterSetterPrototypeProvider.generateGetterSetters(field, false));
       }
     }
     for (final PsiMethod prototype : prototypes) {
@@ -97,7 +95,6 @@ public class JavaGenerateMemberCompletionContributor {
   private static void addSuperSignatureElements(final PsiClass parent, boolean implemented, CompletionResultSet result, Set<MethodSignature> addedSignatures) {
     for (CandidateInfo candidate : OverrideImplementExploreUtil.getMethodsToOverrideImplement(parent, implemented)) {
       PsiMethod baseMethod = (PsiMethod)candidate.getElement();
-      assert baseMethod != null;
       PsiClass baseClass = baseMethod.getContainingClass();
       PsiSubstitutor substitutor = candidate.getSubstitutor();
       if (!baseMethod.isConstructor() && baseClass != null && addedSignatures.add(baseMethod.getSignature(substitutor))) {

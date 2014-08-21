@@ -90,8 +90,13 @@ public abstract class HgPlatformTest extends UsefulTestCase {
 
   @Override
   protected void tearDown() throws Exception {
-    myProjectFixture.tearDown();
-    super.tearDown();
+    try {
+      myProjectFixture.tearDown();
+      clearFields(this);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
   private static void setUpHgrc(@NotNull VirtualFile repositoryRoot) throws IOException {
@@ -109,6 +114,7 @@ public abstract class HgPlatformTest extends UsefulTestCase {
     File hgrc = new File(new File(repositoryRoot.getPath(), ".hg"), "hgrc");
     FileUtil.appendToFile(hgrc, text);
     assertTrue(hgrc.exists());
+    repositoryRoot.refresh(false,true);
   }
 
 

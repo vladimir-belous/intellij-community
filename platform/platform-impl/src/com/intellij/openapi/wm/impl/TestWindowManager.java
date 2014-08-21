@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,13 @@
 package com.intellij.openapi.wm.impl;
 
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.components.ApplicationComponent;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.TaskInfo;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.ui.popup.BalloonHandler;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.openapi.wm.StatusBar;
@@ -39,14 +39,16 @@ import javax.swing.event.HyperlinkListener;
 import java.awt.*;
 import java.awt.event.ComponentEvent;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author Anton Katilin
  * @author Vladimir Kondratyev
  */
-public final class TestWindowManager extends WindowManagerEx implements ApplicationComponent{
-  private static final StatusBarEx ourStatusBar = new DummyStatusBar();
+public final class TestWindowManager extends WindowManagerEx {
+  private static final Key<StatusBar> STATUS_BAR = Key.create("STATUS_BAR");
 
   public final void doNotSuggestAsParent(final Window window) { }
 
@@ -67,7 +69,13 @@ public final class TestWindowManager extends WindowManagerEx implements Applicat
 
   @Override
   public final StatusBar getStatusBar(final Project project) {
-    return ourStatusBar;
+    synchronized (STATUS_BAR) {
+      StatusBar statusBar = project.getUserData(STATUS_BAR);
+      if (statusBar == null) {
+        project.putUserData(STATUS_BAR, statusBar = new DummyStatusBar());
+      }
+      return statusBar;
+    }
   }
 
   @Override
@@ -87,6 +95,8 @@ public final class TestWindowManager extends WindowManagerEx implements Applicat
   public void resetWindow(final Window window) { }
 
   private static final class DummyStatusBar implements StatusBarEx {
+    private final Map<String, StatusBarWidget> myWidgetMap = new HashMap<String, StatusBarWidget>();
+    
     @Override
     public Dimension getSize() {
       return new Dimension(0, 0);
@@ -141,33 +151,39 @@ public final class TestWindowManager extends WindowManagerEx implements Applicat
     }
 
     @Override
+    public void addWidget(@NotNull StatusBarWidget widget) {
+      myWidgetMap.put(widget.ID(), widget);
+    }
+
+    @Override
+    public void addWidget(@NotNull StatusBarWidget widget, @NotNull String anchor) {
+      addWidget(widget);
+    }
+
+    @Override
     public void addWidget(@NotNull StatusBarWidget widget, @NotNull Disposable parentDisposable) {
       Disposer.register(parentDisposable, widget);
+      addWidget(widget);
     }
 
     @Override
     public void addWidget(@NotNull StatusBarWidget widget, @NotNull String anchor, @NotNull Disposable parentDisposable) {
       Disposer.register(parentDisposable, widget);
+      addWidget(widget);
     }
 
     @Override
     public void updateWidgets() { }
 
     @Override
-    public void addWidget(@NotNull StatusBarWidget widget) { }
-
-    @Override
     public void dispose() { }
-
-    @Override
-    public void addWidget(@NotNull StatusBarWidget widget, @NotNull String anchor) { }
 
     @Override
     public void updateWidget(@NotNull String id) { }
 
     @Override
     public StatusBarWidget getWidget(String id) {
-      return null;
+      return myWidgetMap.get(id);
     }
 
     @Override
@@ -266,9 +282,10 @@ public final class TestWindowManager extends WindowManagerEx implements Applicat
 
   @Override
   public IdeFrame findFrameFor(@Nullable Project project) {
-    throw new UnsupportedOperationException();
+    return null;
   }
 
+  @NotNull
   @Override
   public final CommandProcessor getCommandProcessor() {
     throw new UnsupportedOperationException();
@@ -336,18 +353,6 @@ public final class TestWindowManager extends WindowManagerEx implements Applicat
 
   @Override
   public void adjustContainerWindow(Component c, Dimension oldSize, Dimension newSize) { }
-
-  @Override
-  @NotNull
-  public final String getComponentName() {
-    return "TestWindowManager";
-  }
-
-  @Override
-  public final void initComponent() { }
-
-  @Override
-  public final void disposeComponent() { }
 
   @Override
   public void addListener(final WindowManagerListener listener) { }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,7 +32,6 @@ import org.jmock.Mockery;
 import org.jmock.api.Invocation;
 import org.jmock.integration.junit4.JUnit4Mockery;
 import org.jmock.lib.action.CustomAction;
-import org.jmock.lib.legacy.ClassImposteriser;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -123,6 +122,8 @@ public class CachingSoftWrapDataMapperTest {
     final Project project = myMockery.mock(Project.class);
     final SoftWrapPainter painter = myMockery.mock(SoftWrapPainter.class);
 
+    myRepresentationHelper = new MockEditorTextRepresentationHelper(SPACE_SIZE, TAB_SIZE);
+
     myMockery.checking(new Expectations() {{
       // Document
       allowing(myEditor).getDocument();will(returnValue(myDocument));
@@ -166,6 +167,7 @@ public class CachingSoftWrapDataMapperTest {
           return getSoftWrap((Integer)invocation.getParameter(0));
         }
       });
+      allowing(mySoftWrapModel).getEditorTextRepresentationHelper(); will(returnValue(myRepresentationHelper));
 
       // Folding.
       allowing(myEditor).getFoldingModel();will(returnValue(myFoldingModel));
@@ -221,9 +223,7 @@ public class CachingSoftWrapDataMapperTest {
       allowing(painter).getMinDrawingWidth(SoftWrapDrawingType.AFTER_SOFT_WRAP); will(returnValue(SOFT_WRAP_DRAWING_WIDTH));
     }});
 
-    myRepresentationHelper = new MockEditorTextRepresentationHelper(SPACE_SIZE, TAB_SIZE);
-
-    myMapper = new CachingSoftWrapDataMapper(myEditor, myStorage, myRepresentationHelper);
+    myMapper = new CachingSoftWrapDataMapper(myEditor, myStorage);
   }
   
   @After
@@ -696,13 +696,11 @@ public class CachingSoftWrapDataMapperTest {
     int     softWrapStartOffset;
     int     softWrapSymbolsOnCurrentVisualLine;
     int     foldingStartOffset;
-    int     foldingStartLogicalColumn;
     int     foldingStartVisualLine;
     int     foldingStartVisualColumn;
-    int     foldingStartX;
 
     TestEditorPosition() {
-      super(myEditor, myRepresentationHelper);
+      super(myEditor);
       lineStartPosition = clone();
     }
 
@@ -728,10 +726,8 @@ public class CachingSoftWrapDataMapperTest {
 
     public void onFoldingStart() {
       foldingStartOffset = offset;
-      foldingStartLogicalColumn = logicalColumn;
       foldingStartVisualLine = visualLine;
       foldingStartVisualColumn = visualColumn;
-      foldingStartX = x;
       insideFolding = true;
       myMapper.onVisualLineStart(lineStartPosition);
     }
@@ -739,12 +735,13 @@ public class CachingSoftWrapDataMapperTest {
     public void onFoldingEnd() {
       visualColumn += 3; // For '...' folding
       foldingColumnDiff += 3;
-      
-      x = foldingStartX + 3 * SPACE_SIZE;
+
+      int prevX = x;
+      x += 3 * SPACE_SIZE;
       insideFolding = false;
       MockFoldRegion foldRegion = new MockFoldRegion(foldingStartOffset, offset);
       myFoldRegions.add(foldRegion);
-      myMapper.onCollapsedFoldRegion(foldRegion, foldingStartX, foldingStartVisualLine);
+      myMapper.onCollapsedFoldRegion(foldRegion, myRepresentationHelper.toVisualColumnSymbolsNumber(document, foldingStartOffset, offset, prevX), foldingStartVisualLine);
     }
 
     public void onNewSymbol(char c) {

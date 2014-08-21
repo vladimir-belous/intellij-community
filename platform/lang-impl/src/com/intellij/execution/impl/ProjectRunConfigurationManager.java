@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,7 +50,7 @@ import java.util.Set;
   }
 )
 public class ProjectRunConfigurationManager implements ProjectComponent, PersistentStateComponent<Element> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.execution.impl.ProjectRunConfigurationManager");
+  private static final Logger LOG = Logger.getInstance(ProjectRunConfigurationManager.class);
 
   private final RunManagerImpl myManager;
   private List<Element> myUnloadedElements = null;
@@ -150,7 +150,7 @@ public class ProjectRunConfigurationManager implements ProjectComponent, Persist
     }
     if (myUnloadedElements != null) {
       for (Element unloadedElement : myUnloadedElements) {
-        element.addContent((Element)unloadedElement.clone());
+        element.addContent(unloadedElement.clone());
       }
     }
   }
@@ -166,7 +166,7 @@ public class ProjectRunConfigurationManager implements ProjectComponent, Persist
       for (final Object o : list) {
         Element library = (Element)o;
         final String name = generator.generateUniqueName(FileUtil.sanitizeFileName(library.getAttributeValue(RunManagerImpl.NAME_ATTR))) + ".xml";
-        result.add(new Pair<Element, String>(library, name));
+        result.add(Pair.create(library, name));
       }
 
       return result;

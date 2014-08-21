@@ -18,7 +18,12 @@ package com.intellij.codeInspection.varScopeCanBeNarrowed;
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.daemon.GroupNames;
 import com.intellij.codeInsight.daemon.ImplicitUsageProvider;
-import com.intellij.codeInspection.*;
+import com.intellij.codeInsight.daemon.QuickFixBundle;
+import com.intellij.codeInspection.BaseJavaBatchLocalInspectionTool;
+import com.intellij.codeInspection.InspectionsBundle;
+import com.intellij.codeInspection.LocalQuickFix;
+import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.codeInspection.util.SpecialAnnotationsUtilBase;
 import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.JDOMExternalizableStringList;
@@ -28,15 +33,14 @@ import com.intellij.psi.*;
 import com.intellij.psi.controlFlow.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.Processor;
+import com.siyeh.InspectionGadgetsBundle;
 import gnu.trove.THashSet;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collection;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 public class FieldCanBeLocalInspectionBase extends BaseJavaBatchLocalInspectionTool {
   @NonNls public static final String SHORT_NAME = "FieldCanBeLocal";
@@ -69,10 +73,26 @@ public class FieldCanBeLocalInspectionBase extends BaseJavaBatchLocalInspectionT
     if (candidates.isEmpty()) return;
     final ImplicitUsageProvider[] implicitUsageProviders = Extensions.getExtensions(ImplicitUsageProvider.EP_NAME);
 
-    for (PsiField field : candidates) {
+    for (final PsiField field : candidates) {
       if (usedFields.contains(field) && !hasImplicitReadOrWriteUsage(field, implicitUsageProviders)) {
         final String message = InspectionsBundle.message("inspection.field.can.be.local.problem.descriptor");
-        holder.registerProblem(field.getNameIdentifier(), message, createFix());
+        final ArrayList<LocalQuickFix> fixes = new ArrayList<LocalQuickFix>();
+        SpecialAnnotationsUtilBase.createAddToSpecialAnnotationFixes(field, new Processor<String>() {
+          @Override
+          public boolean process(String qualifiedName) {
+            final LocalQuickFix quickFix = SpecialAnnotationsUtilBase.createAddToSpecialAnnotationsListQuickFix(
+              InspectionGadgetsBundle.message("add.0.to.ignore.if.annotated.by.list.quickfix", qualifiedName),
+              QuickFixBundle.message("fix.add.special.annotation.family"),
+              EXCLUDE_ANNOS, qualifiedName, field);
+            fixes.add(quickFix);
+            return true;
+          }
+        });
+        final LocalQuickFix fix = createFix();
+        if (fix != null) {
+          fixes.add(fix);
+        }
+        holder.registerProblem(field.getNameIdentifier(), message, fixes.toArray(new LocalQuickFix[fixes.size()]));
       }
     }
   }
@@ -112,6 +132,7 @@ public class FieldCanBeLocalInspectionBase extends BaseJavaBatchLocalInspectionT
                                        final Set<PsiField> candidates,
                                        final Set<PsiField> usedFields,
                                        final boolean ignoreFieldsUsedInMultipleMethods) {
+    final Set<PsiField> ignored = new HashSet<PsiField>();
     aClass.accept(new JavaRecursiveElementWalkingVisitor() {
       @Override
       public void visitElement(PsiElement element) {
@@ -124,7 +145,7 @@ public class FieldCanBeLocalInspectionBase extends BaseJavaBatchLocalInspectionT
 
         final PsiCodeBlock body = method.getBody();
         if (body != null) {
-          checkCodeBlock(body, candidates, usedFields, ignoreFieldsUsedInMultipleMethods);
+          checkCodeBlock(body, candidates, usedFields, ignoreFieldsUsedInMultipleMethods, ignored);
         }
       }
 
@@ -133,14 +154,14 @@ public class FieldCanBeLocalInspectionBase extends BaseJavaBatchLocalInspectionT
         super.visitLambdaExpression(expression);
         final PsiElement body = expression.getBody();
         if (body != null) {
-          checkCodeBlock(body, candidates, usedFields, ignoreFieldsUsedInMultipleMethods);
+          checkCodeBlock(body, candidates, usedFields, ignoreFieldsUsedInMultipleMethods, ignored);
         }
       }
 
       @Override
       public void visitClassInitializer(PsiClassInitializer initializer) {
         super.visitClassInitializer(initializer);
-        checkCodeBlock(initializer.getBody(), candidates, usedFields, ignoreFieldsUsedInMultipleMethods);
+        checkCodeBlock(initializer.getBody(), candidates, usedFields, ignoreFieldsUsedInMultipleMethods, ignored);
       }
     });
   }
@@ -148,20 +169,28 @@ public class FieldCanBeLocalInspectionBase extends BaseJavaBatchLocalInspectionT
   private static void checkCodeBlock(final PsiElement body,
                                      final Set<PsiField> candidates,
                                      Set<PsiField> usedFields,
-                                     boolean ignoreFieldsUsedInMultipleMethods) {
+                                     boolean ignoreFieldsUsedInMultipleMethods, 
+                                     Set<PsiField> ignored) {
     try {
+      final Ref<Collection<PsiVariable>> writtenVariables = new Ref<Collection<PsiVariable>>();
       final ControlFlow
         controlFlow = ControlFlowFactory.getInstance(body.getProject()).getControlFlow(body, AllVariablesControlFlowPolicy.getInstance());
       final List<PsiVariable> usedVars = ControlFlowUtil.getUsedVariables(controlFlow, 0, controlFlow.getSize());
       for (PsiVariable usedVariable : usedVars) {
         if (usedVariable instanceof PsiField) {
           final PsiField usedField = (PsiField)usedVariable;
-          if (!usedFields.add(usedField) && ignoreFieldsUsedInMultipleMethods) {
+          if (!getWrittenVariables(controlFlow, writtenVariables).contains(usedField)) {
+            ignored.add(usedField);
+          }
+
+          if (!usedFields.add(usedField) && (ignoreFieldsUsedInMultipleMethods || ignored.contains(usedField))) {
             candidates.remove(usedField); //used in more than one code block
           }
         }
       }
-      final Ref<Collection<PsiVariable>> writtenVariables = new Ref<Collection<PsiVariable>>();
+
+      if (candidates.isEmpty()) return;
+
       final List<PsiReferenceExpression> readBeforeWrites = ControlFlowUtil.getReadBeforeWrite(controlFlow);
       for (final PsiReferenceExpression readBeforeWrite : readBeforeWrites) {
         final PsiElement resolved = readBeforeWrite.resolve();

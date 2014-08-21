@@ -5,12 +5,16 @@
  */
 package com.jetbrains.python.debugger.pydev;
 
+import com.google.common.collect.Maps;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.TimeoutUtil;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.io.BaseOutputReader;
 import com.intellij.xdebugger.frame.XValueChildrenList;
 import com.jetbrains.python.console.pydev.PydevCompletionVariant;
 import com.jetbrains.python.debugger.*;
@@ -25,6 +29,7 @@ import java.nio.charset.Charset;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
 
 
 public class RemoteDebugger implements ProcessDebugger {
@@ -51,11 +56,13 @@ public class RemoteDebugger implements ProcessDebugger {
   private final Map<Integer, ProtocolFrame> myResponseQueue = new HashMap<Integer, ProtocolFrame>();
   private final TempVarsHolder myTempVars = new TempVarsHolder();
 
+  private Map<Pair<String, Integer>, String> myTempBreakpoints = Maps.newHashMap();
+
 
   private final List<RemoteDebuggerCloseListener> myCloseListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private DebuggerReader myDebuggerReader;
 
-  public RemoteDebugger(final IPyDebugProcess debugProcess, final ServerSocket serverSocket, final int timeout) {
+  public RemoteDebugger(final IPyDebugProcess debugProcess, @NotNull final ServerSocket serverSocket, final int timeout) {
     myDebugProcess = debugProcess;
     myServerSocket = serverSocket;
     myConnectionTimeout = timeout;
@@ -87,8 +94,7 @@ public class RemoteDebugger implements ProcessDebugger {
 
     if (myConnected) {
       try {
-        myDebuggerReader = new DebuggerReader();
-        ApplicationManager.getApplication().executeOnPooledThread(myDebuggerReader);
+        myDebuggerReader = createReader(mySocket);
       }
       catch (Exception e) {
         synchronized (mySocketObject) {
@@ -381,12 +387,18 @@ public class RemoteDebugger implements ProcessDebugger {
     final SetBreakpointCommand command =
       new SetBreakpointCommand(this, type, file, line);
     execute(command);  // set temp. breakpoint
+    myTempBreakpoints.put(Pair.create(file, line), type);
   }
 
   @Override
   public void removeTempBreakpoint(String file, int line) {
-    final RemoveBreakpointCommand command = new RemoveBreakpointCommand(this, "all", file, line);
-    execute(command);  // remove temp. breakpoint
+    String type = myTempBreakpoints.get(Pair.create(file, line));
+    if (type != null) {
+      final RemoveBreakpointCommand command = new RemoveBreakpointCommand(this, type, file, line);
+      execute(command);  // remove temp. breakpoint
+    } else {
+      LOG.error("Temp breakpoint not found for " + file + ":" + line);
+    }
   }
 
   @Override
@@ -405,35 +417,42 @@ public class RemoteDebugger implements ProcessDebugger {
     execute(command);
   }
 
-  private class DebuggerReader implements Runnable {
-    private final InputStream myInputStream;
-    private boolean myClosing = false;
+  public DebuggerReader createReader(@NotNull Socket socket) throws IOException {
+    synchronized (mySocketObject) {
+      final InputStream myInputStream = socket.getInputStream();
+      //noinspection IOResourceOpenedButNotSafelyClosed
+      final Reader reader = new InputStreamReader(myInputStream, Charset.forName("UTF-8")); //TODO: correct econding?
+      return new DebuggerReader(reader);
+    }
+  }
 
-    private DebuggerReader() throws IOException {
-      synchronized (mySocketObject) {
-        this.myInputStream = mySocket.getInputStream();
-      }
+  private class DebuggerReader extends BaseOutputReader {
+    private boolean myClosing = false;
+    private Reader myReader;
+
+    private DebuggerReader(final Reader reader) throws IOException {
+      super(reader);
+      myReader = reader;
+      start();
     }
 
-    public void run() {
-      final BufferedReader reader = new BufferedReader(new InputStreamReader(myInputStream, Charset.forName("UTF-8")));
+    protected void doRun() {
       try {
-        String line;
-        while ((line = reader.readLine()) != null) {
-          processResponse(line);
+        while (true) {
+          boolean read = readAvailable();
+
           if (myClosing) {
             break;
           }
+
+          TimeoutUtil.sleep(mySleepingPolicy.getTimeToSleep(read));
         }
       }
-      catch (SocketException ignore) {
+      catch (Exception e) {
         fireCommunicationError();
       }
-      catch (Exception e) {
-        LOG.error(e);
-      }
       finally {
-        closeReader(reader);
+        closeReader(myReader);
         fireExitEvent();
       }
     }
@@ -481,13 +500,16 @@ public class RemoteDebugger implements ProcessDebugger {
         }
         case AbstractCommand.SUSPEND_THREAD: {
           final PyThreadInfo event = parseThreadEvent(frame);
-          final PyThreadInfo thread = myThreads.get(event.getId());
-          if (thread != null) {
-            thread.updateState(PyThreadInfo.State.SUSPENDED, event.getFrames());
-            thread.setStopReason(event.getStopReason());
-            thread.setMessage(event.getMessage());
-            myDebugProcess.threadSuspended(thread);
+          PyThreadInfo thread = myThreads.get(event.getId());
+          if (thread == null) {
+            LOG.error("Trying to stop on non-existent thread: " + event.getId() + ", " + event.getStopReason() + ", " + event.getMessage());
+            myThreads.put(event.getId(), event);
+            thread = event;
           }
+          thread.updateState(PyThreadInfo.State.SUSPENDED, event.getFrames());
+          thread.setStopReason(event.getStopReason());
+          thread.setMessage(event.getMessage());
+          myDebugProcess.threadSuspended(thread);
           break;
         }
         case AbstractCommand.RESUME_THREAD: {
@@ -515,7 +537,7 @@ public class RemoteDebugger implements ProcessDebugger {
       return ProtocolParser.parseThread(frame.getPayload(), myDebugProcess.getPositionConverter());
     }
 
-    private void closeReader(BufferedReader reader) {
+    private void closeReader(Reader reader) {
       try {
         reader.close();
       }
@@ -523,8 +545,18 @@ public class RemoteDebugger implements ProcessDebugger {
       }
     }
 
+    @Override
+    protected Future<?> executeOnPooledThread(Runnable runnable) {
+      return ApplicationManager.getApplication().executeOnPooledThread(runnable);
+    }
+
     public void close() {
       myClosing = true;
+    }
+
+    @Override
+    protected void onTextAvailable(@NotNull String text) {
+      processResponse(text);
     }
   }
 

@@ -5,8 +5,9 @@ import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.tmatesoft.svn.core.ISVNCanceller;
+import org.jetbrains.idea.svn.api.ProgressTracker;
 import org.tmatesoft.svn.core.SVNURL;
+import org.tmatesoft.svn.core.wc.SVNRevision;
 import org.tmatesoft.svn.core.wc2.SvnTarget;
 
 import java.io.File;
@@ -27,10 +28,10 @@ public class Command {
   private File workingDirectory;
   @Nullable private File myConfigDir;
   @Nullable private LineCommandListener myResultBuilder;
-  @Nullable private SVNURL myRepositoryUrl;
+  @Nullable private volatile SVNURL myRepositoryUrl;
   @NotNull private SvnTarget myTarget;
 
-  @Nullable private ISVNCanceller myCanceller;
+  @Nullable private ProgressTracker myCanceller;
 
   public Command(@NotNull SvnCommandName name) {
     myName = name;
@@ -51,11 +52,11 @@ public class Command {
   }
 
   @Nullable
-  public ISVNCanceller getCanceller() {
+  public ProgressTracker getCanceller() {
     return myCanceller;
   }
 
-  public void setCanceller(@Nullable ISVNCanceller canceller) {
+  public void setCanceller(@Nullable ProgressTracker canceller) {
     myCanceller = canceller;
   }
 
@@ -131,5 +132,46 @@ public class Command {
     data.addAll(myOriginalParameters);
 
     return StringUtil.join(data, " ");
+  }
+
+  public boolean isLocalInfo() {
+    return is(SvnCommandName.info) && hasLocalTarget() && !myParameters.contains("--revision");
+  }
+
+  public boolean isLocalStatus() {
+    return is(SvnCommandName.st) && hasLocalTarget() && !myParameters.contains("-u");
+  }
+
+  public boolean isLocalProperty() {
+    boolean isPropertyCommand =
+      is(SvnCommandName.proplist) || is(SvnCommandName.propget) || is(SvnCommandName.propset) || is(SvnCommandName.propdel);
+
+    return isPropertyCommand && hasLocalTarget() && isLocal(getRevision());
+  }
+
+  public boolean isLocalCat() {
+    return is(SvnCommandName.cat) && hasLocalTarget() && isLocal(getRevision());
+  }
+
+  @Nullable
+  private SVNRevision getRevision() {
+    int index = myParameters.indexOf("--revision");
+
+    return index >= 0 && index + 1 < myParameters.size() ? SVNRevision.parse(myParameters.get(index + 1)) : null;
+  }
+
+  public boolean is(@NotNull SvnCommandName name) {
+    return name.equals(myName);
+  }
+
+  private boolean hasLocalTarget() {
+    return myTarget.isFile() && isLocal(myTarget.getPegRevision());
+  }
+
+  private static boolean isLocal(@Nullable SVNRevision revision) {
+    return revision == null ||
+           SVNRevision.UNDEFINED.equals(revision) ||
+           SVNRevision.BASE.equals(revision) ||
+           SVNRevision.WORKING.equals(revision);
   }
 }

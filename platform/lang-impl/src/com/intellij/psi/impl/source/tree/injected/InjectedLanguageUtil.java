@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,14 @@
 
 package com.intellij.psi.impl.source.tree.injected;
 
+import com.intellij.extapi.psi.PsiFileBase;
 import com.intellij.injected.editor.*;
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageUtil;
 import com.intellij.lang.injection.InjectedLanguageManager;
+import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.SelectionModel;
 import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
@@ -36,6 +37,8 @@ import com.intellij.psi.impl.PsiParameterizedCachedValue;
 import com.intellij.psi.impl.source.DummyHolder;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.*;
+import com.intellij.testFramework.LightVirtualFile;
+import com.intellij.util.containers.ConcurrentList;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -46,8 +49,10 @@ import java.util.List;
  * @author cdr
  */
 public class InjectedLanguageUtil {
-  static final Key<List<Trinity<IElementType, SmartPsiElementPointer<PsiLanguageInjectionHost>, TextRange>>> HIGHLIGHT_TOKENS = Key.create("HIGHLIGHT_TOKENS");
-  public static Key<Boolean> FRANKENSTEIN_INJECTION = Key.create("FRANKENSTEIN_INJECTION"); // meaning: injected file text is probably incorrect
+  static final Key<List<Trinity<IElementType, SmartPsiElementPointer<PsiLanguageInjectionHost>, TextRange>>> HIGHLIGHT_TOKENS =
+    Key.create("HIGHLIGHT_TOKENS");
+  public static Key<Boolean> FRANKENSTEIN_INJECTION = Key.create("FRANKENSTEIN_INJECTION");
+  // meaning: injected file text is probably incorrect
 
   public static void forceInjectionOnElement(@NotNull PsiElement host) {
     enumerate(host, new PsiLanguageInjectionHost.InjectedPsiVisitor() {
@@ -88,28 +93,47 @@ public class InjectedLanguageUtil {
   public static Place getShreds(@NotNull FileViewProvider viewProvider) {
     if (!(viewProvider instanceof InjectedFileViewProvider)) return null;
     InjectedFileViewProvider myFileViewProvider = (InjectedFileViewProvider)viewProvider;
-    return ((DocumentWindowImpl)myFileViewProvider.getDocument()).getShreds();
+    return getShreds(myFileViewProvider.getDocument());
   }
 
-  public static void enumerate(@NotNull PsiElement host, @NotNull PsiLanguageInjectionHost.InjectedPsiVisitor visitor) {
-    PsiFile containingFile = host.getContainingFile();
-    enumerate(host, containingFile, true, visitor);
+  @NotNull
+  public static Place getShreds(@NotNull DocumentWindow document) {
+    return ((DocumentWindowImpl)document).getShreds();
   }
 
-  public static void enumerate(@NotNull PsiElement host,
-                               @NotNull PsiFile containingFile,
-                               boolean probeUp,
+  public static void enumerate(@NotNull DocumentWindow documentWindow,
+                               @NotNull PsiFile hostPsiFile,
                                @NotNull PsiLanguageInjectionHost.InjectedPsiVisitor visitor) {
+    Segment[] ranges = documentWindow.getHostRanges();
+    Segment rangeMarker = ranges.length > 0 ? ranges[0] : null;
+    PsiElement element = rangeMarker == null ? null : hostPsiFile.findElementAt(rangeMarker.getStartOffset());
+    if (element != null) {
+      enumerate(element, hostPsiFile, true, visitor);
+    }
+  }
+
+  public static boolean enumerate(@NotNull PsiElement host, @NotNull PsiLanguageInjectionHost.InjectedPsiVisitor visitor) {
+    PsiFile containingFile = host.getContainingFile();
+    return enumerate(host, containingFile, true, visitor);
+  }
+
+  /**
+   * @return true if enumerated successfully
+   */
+  public static boolean enumerate(@NotNull PsiElement host,
+                                  @NotNull PsiFile containingFile,
+                                  boolean probeUp,
+                                  @NotNull PsiLanguageInjectionHost.InjectedPsiVisitor visitor) {
     //do not inject into nonphysical files except during completion
     if (!containingFile.isPhysical() && containingFile.getOriginalFile() == containingFile) {
       final PsiElement context = InjectedLanguageManager.getInstance(containingFile.getProject()).getInjectionHost(containingFile);
-      if (context == null) return;
+      if (context == null) return false;
 
       final PsiFile file = context.getContainingFile();
-      if (file == null || !file.isPhysical() && file.getOriginalFile() == file) return;
+      if (file == null || !file.isPhysical() && file.getOriginalFile() == file) return false;
     }
 
-    if (containingFile.getViewProvider() instanceof InjectedFileViewProvider) return; // no injection inside injection
+    if (containingFile.getViewProvider() instanceof InjectedFileViewProvider) return false; // no injection inside injection
 
     PsiElement inTree = loadTree(host, containingFile);
     if (inTree != host) {
@@ -119,7 +143,8 @@ public class InjectedLanguageUtil {
 
     MultiHostRegistrarImpl registrar = probeElementsUp(host, containingFile, probeUp);
     if (registrar == null) {
-      return;
+      // no injections found
+      return true;
     }
     List<Pair<Place, PsiFile>> places = registrar.getResult();
     for (Pair<Place, PsiFile> pair : places) {
@@ -132,6 +157,7 @@ public class InjectedLanguageUtil {
         visitor.visit(pair.second, pair.first);
       }
     }
+    return true;
   }
 
   public static Editor getEditorForInjectedLanguageNoCommit(@Nullable Editor editor, @Nullable PsiFile file) {
@@ -139,6 +165,55 @@ public class InjectedLanguageUtil {
 
     int offset = editor.getCaretModel().getOffset();
     return getEditorForInjectedLanguageNoCommit(editor, file, offset);
+  }
+
+  public static Editor getEditorForInjectedLanguageNoCommit(@Nullable Editor editor, @Nullable Caret caret, @Nullable PsiFile file) {
+    if (editor == null || file == null || editor instanceof EditorWindow || caret == null) return editor;
+
+    PsiFile injectedFile = findInjectedPsiNoCommit(file, caret.getOffset());
+    return getInjectedEditorForInjectedFile(editor, caret, injectedFile);
+  }
+
+  public static Caret getCaretForInjectedLanguageNoCommit(@Nullable Caret caret, @Nullable PsiFile file) {
+    if (caret == null || file == null || caret instanceof InjectedCaret) return caret;
+
+    PsiFile injectedFile = findInjectedPsiNoCommit(file, caret.getOffset());
+    Editor injectedEditor = getInjectedEditorForInjectedFile(caret.getEditor(), injectedFile);
+    if (!(injectedEditor instanceof EditorWindow)) {
+      return caret;
+    }
+    for (Caret injectedCaret : injectedEditor.getCaretModel().getAllCarets()) {
+      if (((InjectedCaret)injectedCaret).getDelegate() == caret) {
+        return injectedCaret;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Finds injected language in expression
+   *
+   * @param expression  where to find
+   * @param classToFind class that represents language we look for
+   * @param <T>         class that represents language we look for
+   * @return instance of class that represents language we look for or null of not found
+   */
+  @Nullable
+  @SuppressWarnings("unchecked") // We check types dynamically (using isAssignableFrom)
+  public static <T extends PsiFileBase> T findInjectedFile(@NotNull final PsiElement expression,
+                                                           @NotNull final Class<T> classToFind) {
+    final List<Pair<PsiElement, TextRange>> files =
+      InjectedLanguageManager.getInstance(expression.getProject()).getInjectedPsiFiles(expression);
+    if (files == null) {
+      return null;
+    }
+    for (final Pair<PsiElement, TextRange> fileInfo : files) {
+      final PsiElement injectedFile = fileInfo.first;
+      if (classToFind.isAssignableFrom(injectedFile.getClass())) {
+        return (T)injectedFile;
+      }
+    }
+    return null;
   }
 
   public static Editor getEditorForInjectedLanguageNoCommit(@Nullable Editor editor, @Nullable PsiFile file, final int offset) {
@@ -149,25 +224,31 @@ public class InjectedLanguageUtil {
 
   @NotNull
   public static Editor getInjectedEditorForInjectedFile(@NotNull Editor hostEditor, @Nullable final PsiFile injectedFile) {
+    return getInjectedEditorForInjectedFile(hostEditor, hostEditor.getCaretModel().getCurrentCaret(), injectedFile);
+  }
+
+  @NotNull
+  public static Editor getInjectedEditorForInjectedFile(@NotNull Editor hostEditor, @NotNull Caret hostCaret, @Nullable final PsiFile injectedFile) {
     if (injectedFile == null || hostEditor instanceof EditorWindow || hostEditor.isDisposed()) return hostEditor;
     Project project = hostEditor.getProject();
     if (project == null) project = injectedFile.getProject();
     Document document = PsiDocumentManager.getInstance(project).getDocument(injectedFile);
     if (!(document instanceof DocumentWindowImpl)) return hostEditor;
     DocumentWindowImpl documentWindow = (DocumentWindowImpl)document;
-    SelectionModel selectionModel = hostEditor.getSelectionModel();
-    if (selectionModel.hasSelection()) {
-      int selstart = selectionModel.getSelectionStart();
+    if (hostCaret.hasSelection()) {
+      int selstart = hostCaret.getSelectionStart();
       if (selstart != -1) {
-        int selend = Math.max(selstart, selectionModel.getSelectionEnd());
+        int selend = Math.max(selstart, hostCaret.getSelectionEnd());
         if (!documentWindow.containsRange(selstart, selend)) {
           // selection spreads out the injected editor range
           return hostEditor;
         }
       }
     }
-    if (!documentWindow.isValid()) return hostEditor; // since the moment we got hold of injectedFile and this moment call, document may have been dirtied
-    return EditorWindow.create(documentWindow, (EditorImpl)hostEditor, injectedFile);
+    if (!documentWindow.isValid()) {
+      return hostEditor; // since the moment we got hold of injectedFile and this moment call, document may have been dirtied
+    }
+    return EditorWindowImpl.create(documentWindow, (EditorImpl)hostEditor, injectedFile);
   }
 
   @Nullable
@@ -250,7 +331,8 @@ public class InjectedLanguageUtil {
           ParameterizedCachedValue<MultiHostRegistrarImpl, PsiElement> cachedValue =
             CachedValuesManager.getManager(project).createParameterizedCachedValue(INJECTED_PSI_PROVIDER, false);
 
-          CachedValueProvider.Result<MultiHostRegistrarImpl> result = CachedValueProvider.Result.create(registrar, PsiModificationTracker.MODIFICATION_COUNT, registrar);
+          CachedValueProvider.Result<MultiHostRegistrarImpl> result =
+            CachedValueProvider.Result.create(registrar, PsiModificationTracker.MODIFICATION_COUNT, registrar);
           ((PsiParameterizedCachedValue<MultiHostRegistrarImpl, PsiElement>)cachedValue).setValue(result);
 
           e.putUserData(INJECTED_PSI, cachedValue);
@@ -273,7 +355,9 @@ public class InjectedLanguageUtil {
   // returns (injected psi, leaf element at the offset, language of the leaf element)
   // since findElementAt() is expensive, we trying to reuse its result
   @NotNull
-  private static Trinity<PsiElement,PsiElement,Language> tryOffset(@NotNull PsiFile hostFile, final int offset, @NotNull PsiDocumentManager documentManager) {
+  private static Trinity<PsiElement, PsiElement, Language> tryOffset(@NotNull PsiFile hostFile,
+                                                                     final int offset,
+                                                                     @NotNull PsiDocumentManager documentManager) {
     FileViewProvider provider = hostFile.getViewProvider();
     Language leafLanguage = null;
     PsiElement leafElement = null;
@@ -285,11 +369,11 @@ public class InjectedLanguageUtil {
           leafElement = element;
         }
         PsiElement injected = findInside(element, hostFile, offset, documentManager);
-        if (injected != null) return Trinity.create(injected,element, language);
+        if (injected != null) return Trinity.create(injected, element, language);
       }
       // maybe we are at the border between two psi elements, then try to find injection at the end of the left element
       if (offset != 0 && (element == null || element.getTextRange().getStartOffset() == offset)) {
-        PsiElement leftElement = provider.findElementAt(offset-1, language);
+        PsiElement leftElement = provider.findElementAt(offset - 1, language);
         if (leftElement != null && leftElement.getTextRange().getEndOffset() == offset) {
           PsiElement injected = findInside(leftElement, hostFile, offset, documentManager);
           if (injected != null) return Trinity.create(injected, element, language);
@@ -300,7 +384,10 @@ public class InjectedLanguageUtil {
     return Trinity.create(null, leafElement, leafLanguage);
   }
 
-  private static PsiElement findInside(@NotNull PsiElement element, @NotNull PsiFile hostFile, final int hostOffset, @NotNull final PsiDocumentManager documentManager) {
+  private static PsiElement findInside(@NotNull PsiElement element,
+                                       @NotNull PsiFile hostFile,
+                                       final int hostOffset,
+                                       @NotNull final PsiDocumentManager documentManager) {
     final Ref<PsiElement> out = new Ref<PsiElement>();
     enumerate(element, hostFile, true, new PsiLanguageInjectionHost.InjectedPsiVisitor() {
       @Override
@@ -320,17 +407,19 @@ public class InjectedLanguageUtil {
     return out.get();
   }
 
-  private static final Key<List<DocumentWindow>> INJECTED_DOCS_KEY = Key.create("INJECTED_DOCS_KEY");
+  private static final Key<ConcurrentList<DocumentWindow>> INJECTED_DOCS_KEY = Key.create("INJECTED_DOCS_KEY");
 
   @NotNull
-  public static List<DocumentWindow> getCachedInjectedDocuments(@NotNull PsiFile hostPsiFile) {
+  public static ConcurrentList<DocumentWindow> getCachedInjectedDocuments(@NotNull PsiFile hostPsiFile) {
     // modification of cachedInjectedDocuments must be under PsiLock only
-    List<DocumentWindow> injected = hostPsiFile.getUserData(INJECTED_DOCS_KEY);
+    ConcurrentList<DocumentWindow> injected = hostPsiFile.getUserData(INJECTED_DOCS_KEY);
     if (injected == null) {
-      injected = ((UserDataHolderEx)hostPsiFile).putUserDataIfAbsent(INJECTED_DOCS_KEY, ContainerUtil.<DocumentWindow>createEmptyCOWList());
+      injected =
+        ((UserDataHolderEx)hostPsiFile).putUserDataIfAbsent(INJECTED_DOCS_KEY, ContainerUtil.<DocumentWindow>createConcurrentList());
     }
     return injected;
   }
+
   public static void clearCachedInjectedFragmentsForFile(@NotNull PsiFile file) {
     file.putUserData(INJECTED_DOCS_KEY, null);
   }
@@ -377,7 +466,7 @@ public class InjectedLanguageUtil {
     Editor editor = FileEditorManager.getInstance(project).openTextEditor(new OpenFileDescriptor(project, virtualFile, -1), false);
     if (editor == null || editor instanceof EditorWindow || editor.isDisposed()) return editor;
     if (document instanceof DocumentWindowImpl) {
-      return EditorWindow.create((DocumentWindowImpl)document, (EditorImpl)editor, file);
+      return EditorWindowImpl.create((DocumentWindowImpl)document, (EditorImpl)editor, file);
     }
     return editor;
   }
@@ -392,10 +481,12 @@ public class InjectedLanguageUtil {
     }
     return containingFile;
   }
+
   @NotNull
   public static Editor getTopLevelEditor(@NotNull Editor editor) {
     return editor instanceof EditorWindow ? ((EditorWindow)editor).getDelegate() : editor;
   }
+
   public static boolean isInInjectedLanguagePrefixSuffix(@NotNull final PsiElement element) {
     PsiFile injectedFile = element.getContainingFile();
     if (injectedFile == null) return false;
@@ -410,27 +501,6 @@ public class InjectedLanguageUtil {
     }
 
     return combinedEdiablesLength != elementRange.getLength();
-  }
-
-  public static boolean isSelectionIsAboutToOverflowInjectedFragment(@NotNull EditorWindow injectedEditor) {
-    int selStart = injectedEditor.getSelectionModel().getSelectionStart();
-    int selEnd = injectedEditor.getSelectionModel().getSelectionEnd();
-
-    DocumentWindow document = injectedEditor.getDocument();
-
-    boolean isStartOverflows = selStart == 0;
-    if (!isStartOverflows) {
-      int hostPrev = document.injectedToHost(selStart - 1);
-      isStartOverflows = document.hostToInjected(hostPrev) == selStart;
-    }
-
-    boolean isEndOverflows = selEnd == document.getTextLength();
-    if (!isEndOverflows) {
-      int hostNext = document.injectedToHost(selEnd + 1);
-      isEndOverflows = document.hostToInjected(hostNext) == selEnd;
-    }
-
-    return isStartOverflows && isEndOverflows;
   }
 
   public static boolean hasInjections(@NotNull PsiLanguageInjectionHost host) {
@@ -448,13 +518,13 @@ public class InjectedLanguageUtil {
   public static String getUnescapedText(PsiFile file, @Nullable final PsiElement startElement, @Nullable final PsiElement endElement) {
     final InjectedLanguageManager manager = InjectedLanguageManager.getInstance(file.getProject());
     if (manager.getInjectionHost(file) == null) {
-      return file.getText().substring(startElement == null? 0 : startElement.getTextRange().getStartOffset(),
-                                      endElement == null? file.getTextLength() : endElement.getTextRange().getStartOffset());
+      return file.getText().substring(startElement == null ? 0 : startElement.getTextRange().getStartOffset(),
+                                      endElement == null ? file.getTextLength() : endElement.getTextRange().getStartOffset());
     }
     final StringBuilder sb = new StringBuilder();
     file.accept(new PsiRecursiveElementWalkingVisitor() {
 
-      Boolean myState = startElement == null? Boolean.TRUE : null;
+      Boolean myState = startElement == null ? Boolean.TRUE : null;
 
       @Override
       public void visitElement(PsiElement element) {
@@ -497,7 +567,51 @@ public class InjectedLanguageUtil {
     return LanguageUtil.isInjectableLanguage(language);
   }
 
-  public static boolean suppressInjectionBackground(@Nullable PsiLanguageInjectionHost host) {
-    return host instanceof InjectionBackgroundSuppressor;
+  public static boolean isHighlightInjectionBackground(@Nullable PsiLanguageInjectionHost host) {
+    return !(host instanceof InjectionBackgroundSuppressor);
+  }
+
+  public static int getInjectedStart(@NotNull List<PsiLanguageInjectionHost.Shred> places) {
+    PsiLanguageInjectionHost.Shred shred = places.get(0);
+    PsiLanguageInjectionHost host = shred.getHost();
+    assert host != null;
+    return shred.getRangeInsideHost().getStartOffset() + host.getTextOffset();
+  }
+
+  @Nullable
+  public static PsiElement findElementInInjected(@NotNull PsiLanguageInjectionHost injectionHost, final int offset) {
+    final Ref<PsiElement> ref = Ref.create();
+    enumerate(injectionHost, new PsiLanguageInjectionHost.InjectedPsiVisitor() {
+      @Override
+      public void visit(@NotNull final PsiFile injectedPsi, @NotNull final List<PsiLanguageInjectionHost.Shred> places) {
+        ref.set(injectedPsi.findElementAt(offset - getInjectedStart(places)));
+      }
+    });
+    return ref.get();
+  }
+
+  @Nullable
+  public static PsiLanguageInjectionHost findInjectionHost(@Nullable PsiElement psi) {
+    if (psi == null) return null;
+    PsiFile containingFile = psi.getContainingFile().getOriginalFile();              // * formatting
+    PsiElement fileContext = containingFile.getContext();                            // * quick-edit-handler
+    if (fileContext instanceof PsiLanguageInjectionHost) return (PsiLanguageInjectionHost)fileContext;
+    Place shreds = getShreds(containingFile.getViewProvider()); // * injection-registrar
+    if (shreds == null) {
+      VirtualFile virtualFile = PsiUtilCore.getVirtualFile(containingFile);
+      if (virtualFile instanceof LightVirtualFile) {
+        virtualFile = ((LightVirtualFile)virtualFile).getOriginalFile();             // * dynamic files-from-text
+      }
+      if (virtualFile instanceof VirtualFileWindow) {
+        shreds = getShreds(((VirtualFileWindow)virtualFile).getDocumentWindow());
+      }
+    }
+    return shreds != null ? shreds.getHostPointer().getElement() : null;
+  }
+
+  @Nullable
+  public static PsiLanguageInjectionHost findInjectionHost(@Nullable VirtualFile virtualFile) {
+    return virtualFile instanceof VirtualFileWindow ?
+           getShreds(((VirtualFileWindow)virtualFile).getDocumentWindow()).getHostPointer().getElement() : null;
   }
 }

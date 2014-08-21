@@ -45,6 +45,7 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.execution.MavenRunnerSettings;
+import org.jetbrains.idea.maven.model.MavenExplicitProfiles;
 import org.jetbrains.idea.maven.model.MavenId;
 import org.jetbrains.idea.maven.model.MavenModel;
 import org.jetbrains.idea.maven.project.MavenConsole;
@@ -228,6 +229,8 @@ public class MavenServerManager extends RemoteObjectWrapper<MavenServer> impleme
           params.getVMParametersList().defineProperty(each.getKey(), each.getValue());
         }
 
+        params.getVMParametersList().addProperty("idea.version=", MavenUtil.getIdeaVersionToPassToMavenProcess());
+
         boolean xmxSet = false;
 
         if (mavenEmbedderVMOptions != null) {
@@ -407,7 +410,7 @@ public class MavenServerManager extends RemoteObjectWrapper<MavenServer> impleme
 
   public ProfileApplicationResult applyProfiles(final MavenModel model,
                                                 final File basedir,
-                                                final Collection<String> explicitProfiles,
+                                                final MavenExplicitProfiles explicitProfiles,
                                                 final Collection<String> alwaysOnProfiles) {
     return perform(new Retriable<ProfileApplicationResult>() {
       @Override
@@ -512,6 +515,7 @@ public class MavenServerManager extends RemoteObjectWrapper<MavenServer> impleme
     final Element element = new Element("maven-version");
     element.setAttribute("version", useMaven2 ? "2.x" : "3.x");
     element.setAttribute("vmOptions", mavenEmbedderVMOptions);
+    element.setAttribute("embedderJdk", embedderJdk);
     return element;
   }
 
@@ -522,6 +526,9 @@ public class MavenServerManager extends RemoteObjectWrapper<MavenServer> impleme
 
     String vmOptions = state.getAttributeValue("vmOptions");
     mavenEmbedderVMOptions = vmOptions == null ? DEFAULT_VM_OPTIONS : vmOptions;
+
+    String embedderJdk = state.getAttributeValue("embedderJdk");
+    this.embedderJdk = embedderJdk == null ? MavenRunnerSettings.USE_INTERNAL_JAVA : embedderJdk;
   }
 
   private static class RemoteMavenServerLogger extends MavenRemoteObject implements MavenServerLogger {

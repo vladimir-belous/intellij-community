@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@
 package com.intellij.ide.favoritesTreeView;
 
 import com.intellij.icons.AllIcons;
-import com.intellij.ide.IdeBundle;
 import com.intellij.ide.SelectInTarget;
 import com.intellij.ide.projectView.ProjectView;
 import com.intellij.ide.projectView.impl.AbstractProjectViewPane;
@@ -84,7 +83,7 @@ public class FavoritesProjectViewPane extends AbstractProjectViewPane {
 
   @Override
   public String getTitle() {
-    return IdeBundle.message("action.toolwindow.favorites");
+    return "Favorites";
   }
 
   @Override
@@ -132,6 +131,7 @@ public class FavoritesProjectViewPane extends AbstractProjectViewPane {
     return subId;
   }
 
+  @NotNull
   @Override
   public ActionCallback updateFromRoot(boolean restoreExpandedPaths) {
     return ((FavoritesViewTreeBuilder)getTreeBuilder()).updateFromRootCB();

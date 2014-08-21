@@ -21,7 +21,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileSystemItem;
 import com.jetbrains.python.formatter.PyBlock;
-import com.jetbrains.python.inspections.PyUnresolvedReferencesInspection;
+import com.jetbrains.python.inspections.unresolvedReference.PyUnresolvedReferencesInspection;
 import com.jetbrains.python.psi.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -92,7 +92,7 @@ public class PyImportOptimizer implements ImportOptimizer {
           for (PyImportElement importElement : importStatement.getImportElements()) {
             myMissorted = true;
             PsiElement toImport = importElement.resolve();
-            final PyImportStatement splitImport = myGenerator.createImportStatementFromText(langLevel, "import " + importElement.getText());
+            final PyImportStatement splitImport = myGenerator.createImportStatement(langLevel, importElement.getText(), null);
             prioritize(splitImport, toImport);
           }
         }

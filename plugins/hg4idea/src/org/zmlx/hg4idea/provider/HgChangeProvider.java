@@ -68,6 +68,7 @@ public class HgChangeProvider implements ChangeProvider {
 
   public void getChanges(VcsDirtyScope dirtyScope, ChangelistBuilder builder,
                          ProgressIndicator progress, ChangeListManagerGate addGate) throws VcsException {
+    if (myProject.isDisposed()) return;
     final Collection<HgChange> changes = new HashSet<HgChange>();
     changes.addAll(process(builder, dirtyScope.getRecursivelyDirtyDirectories()));
     changes.addAll(process(builder, dirtyScope.getDirtyFiles()));
@@ -152,9 +153,9 @@ public class HgChangeProvider implements ChangeProvider {
       final VirtualFile vf = filePath.getVirtualFile();
       if (vf != null &&  fileDocumentManager.isFileModified(vf)) {
         final VirtualFile root = vcsManager.getVcsRootFor(vf);
-        if (root != null) {
+        if (root != null && HgUtil.isHgRoot(root)) {
           final HgRevisionNumber beforeRevisionNumber = new HgWorkingCopyRevisionsCommand(myProject).tip(root);
-          final ContentRevision beforeRevision = (beforeRevisionNumber == null ? null : 
+          final ContentRevision beforeRevision = (beforeRevisionNumber == null ? null :
                                                   new HgContentRevision(myProject, new HgFile(myProject, vf), beforeRevisionNumber));
           builder.processChange(new Change(beforeRevision, CurrentContentRevision.create(filePath), FileStatus.MODIFIED), myVcsKey);
         }

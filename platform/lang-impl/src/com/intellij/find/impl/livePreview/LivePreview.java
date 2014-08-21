@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,10 @@ import com.intellij.find.FindModel;
 import com.intellij.find.FindResult;
 import com.intellij.ide.IdeTooltipManager;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.editor.*;
+import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.SelectionModel;
+import com.intellij.openapi.editor.colors.CodeInsightColors;
 import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.event.*;
@@ -46,7 +49,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
-import java.io.*;
+import java.io.PrintStream;
 import java.util.*;
 import java.util.List;
 
@@ -75,10 +78,6 @@ public class LivePreview extends DocumentAdapter implements SearchResults.Search
     updateInSelectionHighlighters();
   }
 
-  public void supressUpdate() {
-    mySuppressedUpdate = true;
-  }
-
   public void inSmartUpdate() {
     myInSmartUpdate = true;
   }
@@ -99,11 +98,8 @@ public class LivePreview extends DocumentAdapter implements SearchResults.Search
   private RangeHighlighter myCursorHighlighter;
   private final List<VisibleAreaListener> myVisibleAreaListenersToRemove = new ArrayList<VisibleAreaListener>();
 
-  private static TextAttributes strikout(TextAttributes attributes) {
-    TextAttributes textAttributes = attributes.clone();
-    textAttributes.setEffectColor(Color.BLACK);
-    textAttributes.setEffectType(EffectType.STRIKEOUT);
-    return textAttributes;
+  private static TextAttributes strikout() {
+    return EditorColorsManager.getInstance().getGlobalScheme().getAttributes(CodeInsightColors.DEPRECATED_ATTRIBUTES).clone();
   }
 
   private Delegate myDelegate;
@@ -125,7 +121,7 @@ public class LivePreview extends DocumentAdapter implements SearchResults.Search
     }
 
     highlightUsages();
-    updateCursorHighlighting(false);
+    updateCursorHighlighting();
     if (myInSmartUpdate) {
       clearUnusedHightlighters();
       myInSmartUpdate = false;
@@ -165,7 +161,7 @@ public class LivePreview extends DocumentAdapter implements SearchResults.Search
     ranges.add(new Pair<Integer, Character>(editor.getDocument().getTextLength()+1, '\n'));
     ContainerUtil.sort(ranges, new Comparator<Pair<Integer, Character>>() {
       @Override
-      public int compare(Pair<Integer, Character> pair, Pair<Integer, Character> pair2) {
+      public int compare(@NotNull Pair<Integer, Character> pair, @NotNull Pair<Integer, Character> pair2) {
         int res = pair.first - pair2.first;
         if (res == 0) {
 
@@ -214,7 +210,7 @@ public class LivePreview extends DocumentAdapter implements SearchResults.Search
     }
     myHighlighters.removeAll(unused);
     Project project = mySearchResults.getProject();
-    if (!project.isDisposed()) {
+    if (project != null && !project.isDisposed()) {
       for (RangeHighlighter highlighter : unused) {
         HighlightManager.getInstance(project).removeSegmentHighlighter(mySearchResults.getEditor(), highlighter);
       }
@@ -222,9 +218,9 @@ public class LivePreview extends DocumentAdapter implements SearchResults.Search
   }
 
   @Override
-  public void cursorMoved(boolean toChangeSelection) {
+  public void cursorMoved() {
     updateInSelectionHighlighters();
-    updateCursorHighlighting(toChangeSelection);
+    updateCursorHighlighting();
   }
 
   @Override
@@ -232,14 +228,7 @@ public class LivePreview extends DocumentAdapter implements SearchResults.Search
     dumpState();
   }
 
-  @Override
-  public void editorChanged(SearchResults sr, Editor oldEditor) {
-    removeFromEditor();
-    oldEditor.getDocument().removeDocumentListener(this);
-    mySearchResults.getEditor().getDocument().addDocumentListener(this);
-  }
-
-  private void updateCursorHighlighting(boolean scroll) {
+  private void updateCursorHighlighting() {
     hideBalloon();
 
     if (myCursorHighlighter != null) {
@@ -249,40 +238,14 @@ public class LivePreview extends DocumentAdapter implements SearchResults.Search
 
     final FindResult cursor = mySearchResults.getCursor();
     Editor editor = mySearchResults.getEditor();
-    SelectionModel selection = editor.getSelectionModel();
     if (cursor != null) {
       Set<RangeHighlighter> dummy = new HashSet<RangeHighlighter>();
-      highlightRange(cursor, new TextAttributes(null, null, Color.BLACK, EffectType.ROUNDED_BOX, 0), dummy);
+      Color color = editor.getColorsScheme().getColor(EditorColors.CARET_COLOR);
+      highlightRange(cursor, new TextAttributes(null, null, color, EffectType.ROUNDED_BOX, 0), dummy);
       if (!dummy.isEmpty()) {
         myCursorHighlighter = dummy.iterator().next();
       }
 
-      if (scroll) {
-        if (mySearchResults.getFindModel().isGlobal()) {
-          FoldingModel foldingModel = editor.getFoldingModel();
-          final FoldRegion[] allRegions = editor.getFoldingModel().getAllFoldRegions();
-
-          foldingModel.runBatchFoldingOperation(new Runnable() {
-            @Override
-            public void run() {
-              for (FoldRegion region : allRegions) {
-                if (cursor.intersects(TextRange.create(region))) {
-                  region.setExpanded(true);
-                }
-              }
-            }
-          });
-          selection.setSelection(cursor.getStartOffset(), cursor.getEndOffset());
-
-          editor.getCaretModel().moveToOffset(cursor.getEndOffset());
-          editor.getScrollingModel().scrollToCaret(ScrollType.CENTER);
-        } else {
-          if (!SearchResults.insideVisibleArea(editor, cursor)) {
-            LogicalPosition pos = editor.offsetToLogicalPosition(cursor.getStartOffset());
-            editor.getScrollingModel().scrollTo(pos, ScrollType.CENTER);
-          }
-        }
-      }
       editor.getScrollingModel().runActionOnScrollingFinished(new Runnable() {
         @Override
         public void run() {
@@ -360,7 +323,7 @@ public class LivePreview extends DocumentAdapter implements SearchResults.Search
         attributes.setEffectColor(attributes.getBackgroundColor());
       }
       if (mySearchResults.isExcluded(range)) {
-        highlightRange(range, strikout(attributes), myHighlighters);
+        highlightRange(range, strikout(), myHighlighters);
       } else {
         highlightRange(range, attributes, myHighlighters);
       }
@@ -427,18 +390,18 @@ public class LivePreview extends DocumentAdapter implements SearchResults.Search
       final FindModel findModel = mySearchResults.getFindModel();
       if (findModel.isRegularExpressions() && findModel.isReplaceState()) {
 
-        showBalloon(cursor, editor, replacementPreviewText);
+        showBalloon(editor, replacementPreviewText);
       }
     }
   }
 
-  private void showBalloon(FindResult cursor, Editor editor, String replacementPreviewText) {
+  private void showBalloon(Editor editor, String replacementPreviewText) {
     if (ApplicationManager.getApplication().isUnitTestMode()) {
       myReplacementPreviewText = replacementPreviewText;
       return;
     }
 
-    ReplacementView replacementView = new ReplacementView(replacementPreviewText, cursor);
+    ReplacementView replacementView = new ReplacementView(replacementPreviewText);
 
     BalloonBuilder balloonBuilder = JBPopupFactory.getInstance().createBalloonBuilder(replacementView);
     balloonBuilder.setFadeoutTime(0);
@@ -499,6 +462,8 @@ public class LivePreview extends DocumentAdapter implements SearchResults.Search
       new Processor<RangeHighlighterEx>() {
         @Override
         public boolean process(RangeHighlighterEx highlighter) {
+          if (!highlighter.getEditorFilter().avaliableIn(mySearchResults.getEditor())) return true;
+
           TextAttributes textAttributes =
             highlighter.getTextAttributes();
           if (highlighter.getUserData(SEARCH_MARKER) != null &&
@@ -547,16 +512,14 @@ public class LivePreview extends DocumentAdapter implements SearchResults.Search
       int startOffset = cur.getStartOffset();
       int endOffset = cur.getEndOffset();
 
-      Point startPoint = myEditor.visualPositionToXY(myEditor.offsetToVisualPosition(startOffset));
-      Point endPoint = myEditor.visualPositionToXY(myEditor.offsetToVisualPosition(endOffset));
-      Point point = new Point((startPoint.x + endPoint.x)/2, startPoint.y);
+      if (startOffset >= myEditor.getDocument().getTextLength()) {
+        if (!object.isDisposed()) {
+          requestBalloonHiding(object);
+        }
+        return null;
+      }
       if (!SearchResults.insideVisibleArea(myEditor, cur)) {
-        ApplicationManager.getApplication().invokeLater(new Runnable() {
-          @Override
-          public void run() {
-            object.hide();
-          }
-        });
+        requestBalloonHiding(object);
 
         VisibleAreaListener visibleAreaListener = new VisibleAreaListener() {
           @Override
@@ -575,7 +538,21 @@ public class LivePreview extends DocumentAdapter implements SearchResults.Search
         myVisibleAreaListenersToRemove.add(visibleAreaListener);
 
       }
+
+      Point startPoint = myEditor.visualPositionToXY(myEditor.offsetToVisualPosition(startOffset));
+      Point endPoint = myEditor.visualPositionToXY(myEditor.offsetToVisualPosition(endOffset));
+      Point point = new Point((startPoint.x + endPoint.x)/2, startPoint.y);
+
       return new RelativePoint(myEditor.getContentComponent(), point);
     }
+  }
+
+  private static void requestBalloonHiding(final Balloon object) {
+    ApplicationManager.getApplication().invokeLater(new Runnable() {
+      @Override
+      public void run() {
+        object.hide();
+      }
+    });
   }
 }

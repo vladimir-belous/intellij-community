@@ -17,15 +17,16 @@ package net.sf.cglib.proxy;
 
 import com.intellij.ide.plugins.PluginManager;
 import com.intellij.ide.plugins.cl.PluginClassLoader;
-import com.intellij.util.ReflectionCache;
+import com.intellij.util.ReflectionUtil;
+import net.sf.cglib.core.*;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Type;
-import net.sf.cglib.core.*;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.*;
 
 /**
@@ -61,6 +62,7 @@ import java.util.*;
  * <code>java.lang.reflect.Proxy</code>, see the {@link Proxy} class.
  */
 
+@SuppressWarnings("StaticFieldReferencedViaSubclass")
 public class AdvancedEnhancer extends AbstractClassGenerator
 {
   private static final CallbackFilter ALL_ZERO = new CallbackFilter(){
@@ -91,7 +93,7 @@ public class AdvancedEnhancer extends AbstractClassGenerator
   private static final Type CALLBACK =
     TypeUtils.parseType("net.sf.cglib.proxy.Callback");
   private static final Type CALLBACK_ARRAY =
-    Type.getType("[Lnet/sf/cglib/proxy/Callback;");
+    Type.getType(Callback[].class);
   private static final Signature CSTRUCT_NULL =
     TypeUtils.parseConstructor("");
   private static final Signature SET_THREAD_CALLBACKS =
@@ -520,6 +522,9 @@ public class AdvancedEnhancer extends AbstractClassGenerator
     }
     final Map<Method, MethodInfo> methodInfoMap = new HashMap<Method, MethodInfo>();
     for (Method method : actualMethods) {
+      if (isJdk8DefaultMethod(method)) {
+        continue;
+      }
       int modifiers =
         Constants.ACC_FINAL | (method.getModifiers() & ~Constants.ACC_ABSTRACT & ~Constants.ACC_NATIVE & ~Constants.ACC_SYNCHRONIZED);
       if (forcePublic.contains(MethodWrapper.create(method))) {
@@ -551,6 +556,11 @@ public class AdvancedEnhancer extends AbstractClassGenerator
     e.end_class();
   }
 
+  private static boolean isJdk8DefaultMethod(Method method) {
+    return ((method.getModifiers() & (Modifier.ABSTRACT | Modifier.PUBLIC | Modifier.STATIC)) ==
+         Modifier.PUBLIC) && method.getDeclaringClass().isInterface();
+  }
+
   private static void removeAllCovariantMethods(final List<Method> actualMethods, final Method method, final Map<Method, Method> covariantMethods) {
     if ((method.getModifiers() & Constants.ACC_SYNTHETIC) != 0) {
       return;
@@ -567,7 +577,7 @@ public class AdvancedEnhancer extends AbstractClassGenerator
         continue;
       }
 
-      if (ReflectionCache.isAssignable(actualMethod.getReturnType(), method.getReturnType())) {
+      if (ReflectionUtil.isAssignable(actualMethod.getReturnType(), method.getReturnType())) {
         if ((actualMethod.getModifiers() & Constants.ACC_ABSTRACT) != 0 || (actualMethod.getModifiers() & Constants.ACC_SYNTHETIC) != 0) {
           covariantMethods.put(actualMethod, method); //generate bridge
         }

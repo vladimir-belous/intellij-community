@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,25 +31,18 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.testFramework.IdeaTestUtil;
-import com.intellij.testFramework.PsiTestCase;
-import com.intellij.testFramework.PsiTestUtil;
-import com.intellij.testFramework.Timings;
+import com.intellij.testFramework.*;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+@SkipSlowTestLocally
 public class PsiConcurrencyStressTest extends PsiTestCase {
-  private static final boolean SKIP = "true".equalsIgnoreCase(System.getProperty("skip.psi.concurrency.test"));
-
-  @Override
-  public void runBare() throws Throwable {
-    if (!SKIP) {
-      super.runBare();
-    }
-  }
+  private volatile PsiJavaFile myFile;
+  private volatile boolean writeActionInProgress;
 
   @Override
   protected void setUp() throws Exception {
@@ -61,8 +54,6 @@ public class PsiConcurrencyStressTest extends PsiTestCase {
     PsiTestUtil.createTestProjectStructure(myProject, myModule, root, myFilesToDelete);
   }
 
-  private volatile PsiJavaFile myFile;
-  private volatile boolean writeActionInProgress;
   public void testStress() throws Exception {
     int numOfThreads = 10;
     int iterations = Timings.adjustAccordingToMySpeed(20, true);
@@ -203,7 +194,7 @@ public class PsiConcurrencyStressTest extends PsiTestCase {
   }
 
   @Override
-  protected void invokeTestRunnable(final Runnable runnable) throws Exception {
+  protected void invokeTestRunnable(@NotNull final Runnable runnable) throws Exception {
     runnable.run();
   }
 }

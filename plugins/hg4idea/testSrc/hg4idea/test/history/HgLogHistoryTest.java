@@ -22,28 +22,23 @@ import com.intellij.vcs.log.Hash;
 import com.intellij.vcs.log.impl.HashImpl;
 import hg4idea.test.HgPlatformTest;
 import org.jetbrains.annotations.NotNull;
-import org.zmlx.hg4idea.util.HgHistoryUtil;
+import org.zmlx.hg4idea.log.HgHistoryUtil;
 
 import java.util.Arrays;
 import java.util.Collection;
 
-import static com.intellij.openapi.vcs.Executor.cd;
-import static com.intellij.openapi.vcs.Executor.echo;
-import static com.intellij.openapi.vcs.Executor.touch;
+import static com.intellij.openapi.vcs.Executor.*;
 import static hg4idea.test.HgExecutor.hg;
 
-/**
- * @author Nadya Zabrodina
- */
 public class HgLogHistoryTest extends HgPlatformTest {
 
   @Override
   public void setUp() throws Exception {
     super.setUp();
-    createBookmarksAndBranches(myRepository);
   }
 
   public void testContainedInBranchesInLogInfos() throws VcsException {
+    createBookmarksAndBranches(myRepository);
     Hash testHashForFirstCommit = HashImpl.build("0");
     Collection<String> branches = HgHistoryUtil.getDescendingHeadsOfBranches(myProject, myRepository, testHashForFirstCommit);
     //B_Bookmark should not be listed - it is inactive and not head//
@@ -53,13 +48,11 @@ public class HgLogHistoryTest extends HgPlatformTest {
   private static void createBookmarksAndBranches(@NotNull VirtualFile repositoryRoot) {
     cd(repositoryRoot);
     hg("bookmark A_BookMark");
-    hg("tag tag1");
     String aFile = "A.txt";
     touch(aFile, "base");
     hg("add " + aFile);
     hg("commit -m 'create file'");
     hg("branch branchA");
-    hg("tag tag2");
     echo(aFile, " modify with a");
     hg("commit -m 'create branchA'");
     hg("bookmark B_BookMark --inactive");
@@ -67,7 +60,6 @@ public class HgLogHistoryTest extends HgPlatformTest {
     hg("commit -m 'modify branchA'");
     hg("up default");
     hg("branch branchB");
-    hg("tag -l localTag");
     echo(aFile, " modify with b");
     hg("commit -m 'modify file in branchB'");
     hg("bookmark C_BookMark");

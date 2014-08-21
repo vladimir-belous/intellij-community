@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -288,6 +288,10 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     return null;
   }
 
+  public void showPopup() {
+    manageSearchPopup(new SearchPopup(""));
+  }
+
   public void hidePopup() {
     manageSearchPopup(null);
   }
@@ -496,14 +500,13 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
   }
 
   private void manageSearchPopup(@Nullable SearchPopup searchPopup) {
-    final Project project;
+    Project project = null;
     if (ApplicationManager.getApplication() != null && !ApplicationManager.getApplication().isDisposed()) {
       project = CommonDataKeys.PROJECT.getData(DataManager.getInstance().getDataContext(myComponent));
     }
-    else {
+    if (project != null && project.isDefault()) {
       project = null;
     }
-
     if (mySearchPopup != null) {
       myPopupLayeredPane.remove(mySearchPopup);
       myPopupLayeredPane.validate();

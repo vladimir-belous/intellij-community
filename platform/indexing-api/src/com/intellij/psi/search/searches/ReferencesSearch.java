@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,10 @@
  */
 package com.intellij.psi.search.searches;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Computable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.search.*;
@@ -41,7 +44,7 @@ public class ReferencesSearch extends ExtensibleQueryFactory<PsiReference, Refer
     private final SearchRequestCollector myOptimizer;
     private final boolean isSharedOptimizer;
 
-    public SearchParameters(@NotNull PsiElement elementToSearch, SearchScope scope, boolean ignoreAccessScope, @Nullable SearchRequestCollector optimizer) {
+    public SearchParameters(@NotNull PsiElement elementToSearch, @NotNull SearchScope scope, boolean ignoreAccessScope, @Nullable SearchRequestCollector optimizer) {
       myElementToSearch = elementToSearch;
       myScope = scope;
       myIgnoreAccessScope = ignoreAccessScope;
@@ -49,7 +52,7 @@ public class ReferencesSearch extends ExtensibleQueryFactory<PsiReference, Refer
       myOptimizer = optimizer == null ? new SearchRequestCollector(new SearchSession()) : optimizer;
     }
 
-    public SearchParameters(@NotNull final PsiElement elementToSearch, final SearchScope scope, final boolean ignoreAccessScope) {
+    public SearchParameters(@NotNull PsiElement elementToSearch, @NotNull SearchScope scope, final boolean ignoreAccessScope) {
       this(elementToSearch, scope, ignoreAccessScope, null);
     }
 
@@ -62,6 +65,7 @@ public class ReferencesSearch extends ExtensibleQueryFactory<PsiReference, Refer
      * Use {@link #getEffectiveSearchScope} instead
      */
     @Deprecated()
+    @NotNull
     public SearchScope getScope() {
       return myScope;
     }
@@ -85,18 +89,22 @@ public class ReferencesSearch extends ExtensibleQueryFactory<PsiReference, Refer
     }
   }
 
+  @NotNull
   public static Query<PsiReference> search(@NotNull PsiElement element) {
-    return search(element, GlobalSearchScope.projectScope(element.getProject()), false);
+    return search(element, GlobalSearchScope.allScope(element.getProject()), false);
   }
 
+  @NotNull
   public static Query<PsiReference> search(@NotNull PsiElement element, @NotNull SearchScope searchScope) {
     return search(element, searchScope, false);
   }
 
+  @NotNull
   public static Query<PsiReference> search(@NotNull PsiElement element, @NotNull SearchScope searchScope, boolean ignoreAccessScope) {
     return search(new SearchParameters(element, searchScope, ignoreAccessScope));
   }
 
+  @NotNull
   public static Query<PsiReference> search(@NotNull final SearchParameters parameters) {
     final Query<PsiReference> result = INSTANCE.createQuery(parameters);
     if (parameters.isSharedOptimizer) {
@@ -107,10 +115,17 @@ public class ReferencesSearch extends ExtensibleQueryFactory<PsiReference, Refer
 
     final PsiElement element = parameters.getElementToSearch();
 
-    return uniqueResults(new MergeQuery<PsiReference>(result, new SearchRequestQuery(element.getProject(), requests)));
+    return uniqueResults(new MergeQuery<PsiReference>(result, new SearchRequestQuery(
+          ApplicationManager.getApplication().runReadAction(new Computable<Project>() {
+            @Override
+            public Project compute() {
+              return element.getProject();
+            }
+          }), requests)));
   }
 
-  private static UniqueResultsQuery<PsiReference, ReferenceDescriptor> uniqueResults(Query<PsiReference> composite) {
+  @NotNull
+  private static UniqueResultsQuery<PsiReference, ReferenceDescriptor> uniqueResults(@NotNull Query<PsiReference> composite) {
     return new UniqueResultsQuery<PsiReference, ReferenceDescriptor>(composite, ContainerUtil.<ReferenceDescriptor>canonicalStrategy(), ReferenceDescriptor.MAPPER);
   }
 

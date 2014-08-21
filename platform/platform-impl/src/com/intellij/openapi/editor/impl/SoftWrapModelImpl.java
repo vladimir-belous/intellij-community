@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.*;
+import com.intellij.openapi.editor.colors.FontPreferences;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.ex.*;
@@ -34,6 +35,7 @@ import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.reference.SoftReference;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 import java.awt.*;
 import java.beans.PropertyChangeEvent;
@@ -70,7 +72,6 @@ public class SoftWrapModelImpl implements SoftWrapModelEx, PrioritizedDocumentLi
   private final FoldProcessingEndTask myFoldProcessingEndTask = new FoldProcessingEndTask();
 
   private final List<DocumentListener>        myDocumentListeners = new ArrayList<DocumentListener>();
-  private final List<SoftWrapFoldingListener> myFoldListeners     = new ArrayList<SoftWrapFoldingListener>();
   private final List<SoftWrapChangeListener>  mySoftWrapListeners = new ArrayList<SoftWrapChangeListener>();
   
   /**
@@ -86,12 +87,13 @@ public class SoftWrapModelImpl implements SoftWrapModelEx, PrioritizedDocumentLi
   private final SoftWrapFoldBasedApplianceStrategy myFoldBasedApplianceStrategy;
   private final CachingSoftWrapDataMapper          myDataMapper;
   private final SoftWrapsStorage                   myStorage;
-  private final SoftWrapPainter                    myPainter;
+  private       SoftWrapPainter                    myPainter;
   private final SoftWrapApplianceManager           myApplianceManager;
   private final SoftWrapAwareVisualSizeManager     myVisualSizeManager;
+  private       EditorTextRepresentationHelper     myEditorTextRepresentationHelper;
 
   private final EditorEx myEditor;
-  
+
   /**
    * We don't want to use soft wraps-aware processing from non-EDT and profiling shows that 'is EDT' check that is called too
    * often is rather expensive. Hence, we use caching here for performance improvement.
@@ -101,6 +103,8 @@ public class SoftWrapModelImpl implements SoftWrapModelEx, PrioritizedDocumentLi
   private int myActive;
   private boolean myUseSoftWraps;
   private int myTabWidth = -1;
+  @NotNull
+  private FontPreferences myFontPreferences;
 
   /**
    * Soft wraps need to be kept up-to-date on all editor modification (changing text, adding/removing/expanding/collapsing fold
@@ -129,40 +133,18 @@ public class SoftWrapModelImpl implements SoftWrapModelEx, PrioritizedDocumentLi
   private boolean myForceAdditionalColumns;
 
   public SoftWrapModelImpl(@NotNull EditorEx editor) {
-    this(editor, new SoftWrapsStorage(), new CompositeSoftWrapPainter(editor));
-  }
-
-  public SoftWrapModelImpl(@NotNull final EditorEx editor, @NotNull SoftWrapsStorage storage, @NotNull SoftWrapPainter painter) {
-    this(editor, storage, painter, new DefaultEditorTextRepresentationHelper(editor));
-  }
-
-  public SoftWrapModelImpl(@NotNull final EditorEx editor, @NotNull SoftWrapsStorage storage, @NotNull SoftWrapPainter painter,
-                           @NotNull EditorTextRepresentationHelper representationHelper) {
-    this(editor, storage, painter, representationHelper, new CachingSoftWrapDataMapper(editor, storage, representationHelper));
-    myApplianceManager.addListener(myDataMapper);
-  }
-
-  public SoftWrapModelImpl(@NotNull final EditorEx editor, @NotNull SoftWrapsStorage storage, @NotNull SoftWrapPainter painter,
-                           @NotNull EditorTextRepresentationHelper representationHelper, @NotNull CachingSoftWrapDataMapper dataMapper)
-  {
-    this(editor, storage, painter, new SoftWrapApplianceManager(storage, editor, painter, representationHelper, dataMapper), dataMapper);
-  }
-
-  public SoftWrapModelImpl(@NotNull EditorEx editor, @NotNull SoftWrapsStorage storage, @NotNull SoftWrapPainter painter,
-                           @NotNull SoftWrapApplianceManager applianceManager, @NotNull CachingSoftWrapDataMapper dataMapper)
-  {
     myEditor = editor;
-    myStorage = storage;
-    myPainter = painter;
-    myApplianceManager = applianceManager;
-    myDataMapper = dataMapper;
+    myStorage = new SoftWrapsStorage();
+    myPainter = new CompositeSoftWrapPainter(editor);
+    myEditorTextRepresentationHelper = new DefaultEditorTextRepresentationHelper(editor);
+    myDataMapper = new CachingSoftWrapDataMapper(editor, myStorage);
+    myApplianceManager = new SoftWrapApplianceManager(myStorage, editor, myPainter, myDataMapper);
     myFoldBasedApplianceStrategy = new SoftWrapFoldBasedApplianceStrategy(editor);
-    myVisualSizeManager = new SoftWrapAwareVisualSizeManager(painter);
+    myVisualSizeManager = new SoftWrapAwareVisualSizeManager(myPainter);
 
     myDocumentListeners.add(myApplianceManager);
-    myFoldListeners.add(myApplianceManager);
-    applianceManager.addListener(myVisualSizeManager);
-    applianceManager.addListener(new SoftWrapAwareDocumentParsingListenerAdapter() {
+    myApplianceManager.addListener(myVisualSizeManager);
+    myApplianceManager.addListener(new SoftWrapAwareDocumentParsingListenerAdapter() {
       @Override
       public void recalculationEnds() {
         for (SoftWrapChangeListener listener : mySoftWrapListeners) {
@@ -172,10 +154,13 @@ public class SoftWrapModelImpl implements SoftWrapModelEx, PrioritizedDocumentLi
     });
     EditorSettings settings = myEditor.getSettings();
     myUseSoftWraps = settings.isUseSoftWraps();
+    myFontPreferences = myEditor.getColorsScheme().getFontPreferences();
     
     editor.addPropertyChangeListener(this);
 
     ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(DocumentBulkUpdateListener.TOPIC, this);
+
+    myApplianceManager.addListener(myDataMapper);
   }
 
   /**
@@ -188,8 +173,16 @@ public class SoftWrapModelImpl implements SoftWrapModelEx, PrioritizedDocumentLi
 
     int tabWidthBefore = myTabWidth;
     myTabWidth = getCurrentTabWidth();
+
+    boolean fontsChanged = false;
+    if (!myFontPreferences.equals(myEditor.getColorsScheme().getFontPreferences())
+        && myEditorTextRepresentationHelper instanceof DefaultEditorTextRepresentationHelper) {
+      fontsChanged = true;
+      myFontPreferences = myEditor.getColorsScheme().getFontPreferences();
+      ((DefaultEditorTextRepresentationHelper)myEditorTextRepresentationHelper).clearSymbolWidthCache();
+    }
     
-    if ((myUseSoftWraps ^ softWrapsUsedBefore) || (tabWidthBefore >= 0 && myTabWidth != tabWidthBefore)) {
+    if ((myUseSoftWraps ^ softWrapsUsedBefore) || (tabWidthBefore >= 0 && myTabWidth != tabWidthBefore) || fontsChanged) {
       myApplianceManager.reset();
       myDeferredFoldRegions.clear();
       myEditor.getScrollingModel().scrollToCaret(ScrollType.CENTER);
@@ -310,14 +303,7 @@ public class SoftWrapModelImpl implements SoftWrapModelEx, PrioritizedDocumentLi
     if (!isSoftWrappingEnabled()) {
       return 0;
     }
-    int result = 0;
-    FoldingModel foldingModel = myEditor.getFoldingModel();
-    for (SoftWrap softWrap : myStorage.getSoftWraps()) {
-      if (!foldingModel.isOffsetCollapsed(softWrap.getStart())) {
-        result++; // Assuming that soft wrap has single line feed all the time
-      }
-    }
-    return result;
+    return myStorage.getSoftWraps().size(); // Assuming that soft wrap has single line feed all the time
   }
 
   /**
@@ -453,7 +439,7 @@ public class SoftWrapModelImpl implements SoftWrapModelEx, PrioritizedDocumentLi
                              && myFoldBasedApplianceStrategy.processSoftWraps();
 
     if (!useSoftWraps) {
-      return useSoftWraps;
+      return false;
     }
 
     if (myDirty) {
@@ -624,7 +610,9 @@ public class SoftWrapModelImpl implements SoftWrapModelEx, PrioritizedDocumentLi
       myDirty = true;
       return;
     }
-    
+
+    // We delay processing of changed fold regions till the invocation of onFoldProcessingEnd(), as
+    // FoldingModel can return inconsistent data before that moment.
     myDeferredFoldRegions.add(new FoldRegionInfo(region));
   }
 
@@ -689,7 +677,7 @@ public class SoftWrapModelImpl implements SoftWrapModelEx, PrioritizedDocumentLi
     try {
       task.run(true);
     } catch (Throwable e) {
-      if (Boolean.getBoolean(DEBUG_PROPERTY_NAME)) {
+      if (Boolean.getBoolean(DEBUG_PROPERTY_NAME) || ApplicationManager.getApplication().isUnitTestMode()) {
         String info = "";
         if (myEditor instanceof EditorImpl) {
           info = ((EditorImpl)myEditor).dumpState();
@@ -714,6 +702,27 @@ public class SoftWrapModelImpl implements SoftWrapModelEx, PrioritizedDocumentLi
         task.run(false);
       }
     }
+  }
+
+  @TestOnly
+  public void setSoftWrapPainter(SoftWrapPainter painter) {
+    myPainter = painter;
+    myApplianceManager.setSoftWrapPainter(painter);
+    myVisualSizeManager.setSoftWrapPainter(painter);
+  }
+
+  public static EditorTextRepresentationHelper getEditorTextRepresentationHelper(@NotNull Editor editor) {
+    return ((SoftWrapModelEx)editor.getSoftWrapModel()).getEditorTextRepresentationHelper();
+  }
+
+  public EditorTextRepresentationHelper getEditorTextRepresentationHelper() {
+    return myEditorTextRepresentationHelper;
+  }
+
+  @TestOnly
+  public void setEditorTextRepresentationHelper(EditorTextRepresentationHelper editorTextRepresentationHelper) {
+    myEditorTextRepresentationHelper = editorTextRepresentationHelper;
+    myApplianceManager.reset();
   }
 
   @NotNull
@@ -813,28 +822,26 @@ public class SoftWrapModelImpl implements SoftWrapModelEx, PrioritizedDocumentLi
       }
 
       try {
-        for (FoldRegionInfo info : myDeferredFoldRegions) {
-          // There is a possible case that given fold region is contained inside another collapsed fold region. We don't want to process
-          // such nested region then.
-          FoldRegion outerRegion = myEditor.getFoldingModel().getCollapsedRegionAtOffset(info.start);
-          if (outerRegion != null && outerRegion != info.region && outerRegion.getStartOffset() <= info.start
-              && outerRegion.getEndOffset() >= info.end)
-          {
-            continue;
-          }
-        
-          for (SoftWrapFoldingListener listener : myFoldListeners) {
-            listener.onFoldRegionStateChange(info.start, info.end);
+        if (!myDirty) { // no need to recalculate specific areas if the whole document will be reprocessed
+          for (FoldRegionInfo info : myDeferredFoldRegions) {
+            // There is a possible case that given fold region is contained inside another collapsed fold region. We don't want to process
+            // such nested region then.
+            FoldRegion outerRegion = myEditor.getFoldingModel().getCollapsedRegionAtOffset(info.start);
+            if (outerRegion != null && outerRegion != info.region && outerRegion.getStartOffset() <= info.start
+                && outerRegion.getEndOffset() >= info.end)
+            {
+              continue;
+            }
+
+            myApplianceManager.onFoldRegionStateChange(info.start, info.end);
           }
         }
       }
       finally {
         myDeferredFoldRegions.clear();
       }
-      
-      for (SoftWrapFoldingListener listener : myFoldListeners) {
-        listener.onFoldProcessingEnd();
-      }
+
+      myApplianceManager.onFoldProcessingEnd();
     }
 
     @Override

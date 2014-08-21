@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2013 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import com.intellij.codeInsight.hint.HintManagerImpl;
 import com.intellij.codeInsight.hint.HintUtil;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
+import com.intellij.ide.actions.BaseNavigateToSourceAction;
 import com.intellij.ide.actions.ExternalJavaDocAction;
 import com.intellij.lang.documentation.CompositeDocumentationProvider;
 import com.intellij.lang.documentation.DocumentationProvider;
@@ -39,11 +40,14 @@ import com.intellij.openapi.options.FontSize;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
+import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.SmartPointerManager;
 import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.ui.IdeBorderFactory;
+import com.intellij.ui.JBColor;
 import com.intellij.ui.SideBorder;
 import com.intellij.ui.components.JBLayeredPane;
 import com.intellij.ui.components.JBScrollPane;
@@ -63,12 +67,14 @@ import javax.swing.event.HyperlinkListener;
 import javax.swing.text.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Stack;
 
 public class DocumentationComponent extends JPanel implements Disposable, DataProvider {
 
-  private static final String DOCUMENTATION_TOPIC_ID = "reference.toolWindows.Documentation";
+  @NonNls private static final String DOCUMENTATION_TOPIC_ID = "reference.toolWindows.Documentation";
 
   private static final DataContext EMPTY_DATA_CONTEXT = new DataContext() {
     @Override
@@ -77,29 +83,30 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
     }
   };
 
-  private static final int MAX_WIDTH  = 500;
+  private static final int MAX_WIDTH = 500;
   private static final int MAX_HEIGHT = 300;
   private static final int MIN_HEIGHT = 45;
 
-  private DocumentationManager   myManager;
+  private DocumentationManager myManager;
   private SmartPsiElementPointer myElement;
 
-  private final Stack<Context> myBackStack    = new Stack<Context>();
+  private final Stack<Context> myBackStack = new Stack<Context>();
   private final Stack<Context> myForwardStack = new Stack<Context>();
-  private final ActionToolbar        myToolBar;
-  private       boolean              myIsEmpty;
-  private       boolean              myIsShown;
-  private final JLabel               myElementLabel;
-  private       Style                myFontSizeStyle;
-  private       JSlider              myFontSizeSlider;
-  private final JComponent           mySettingsPanel;
+  private final ActionToolbar myToolBar;
+  private volatile boolean myIsEmpty;
+  private boolean myIsShown;
+  private final JLabel myElementLabel;
+  private Style myFontSizeStyle;
+  private JSlider myFontSizeSlider;
+  private final JComponent mySettingsPanel;
   private final MyShowSettingsButton myShowSettingsButton;
-  private       boolean              myIgnoreFontSizeSliderChange;
+  private boolean myIgnoreFontSizeSliderChange;
+  private String myEffectiveExternalUrl;
 
   private static class Context {
     final SmartPsiElementPointer element;
-    final String                 text;
-    final Rectangle              viewRect;
+    final String text;
+    final Rectangle viewRect;
 
     public Context(SmartPsiElementPointer element, String text, Rectangle viewRect) {
       this.element = element;
@@ -108,18 +115,17 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
     }
   }
 
-  private final JScrollPane          myScrollPane;
-  private final JEditorPane          myEditorPane;
-  private       String               myText; // myEditorPane.getText() surprisingly crashes.., let's cache the text
-  private final JPanel               myControlPanel;
-  private       boolean              myControlPanelVisible;
-  private final ExternalDocAction    myExternalDocAction;
-  private       Consumer<PsiElement> myNavigateCallback;
+  private final JScrollPane myScrollPane;
+  private final JEditorPane myEditorPane;
+  private String myText; // myEditorPane.getText() surprisingly crashes.., let's cache the text
+  private final JPanel myControlPanel;
+  private boolean myControlPanelVisible;
+  private final ExternalDocAction myExternalDocAction;
+  private Consumer<PsiElement> myNavigateCallback;
 
   private JBPopup myHint;
 
-  private final HashMap<KeyStroke, ActionListener> myKeyboardActions = new HashMap<KeyStroke, ActionListener>();
-  // KeyStroke --> ActionListener
+  private final Map<KeyStroke, ActionListener> myKeyboardActions = new HashMap<KeyStroke, ActionListener>();
 
   @Override
   public boolean requestFocusInWindow() {
@@ -290,12 +296,16 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
     final DefaultActionGroup actions = new DefaultActionGroup();
     final BackAction back = new BackAction();
     final ForwardAction forward = new ForwardAction();
+    EditDocumentationSourceAction edit = new EditDocumentationSourceAction();
     actions.add(back);
     actions.add(forward);
     actions.add(myExternalDocAction = new ExternalDocAction());
+    actions.add(edit);
+
     back.registerCustomShortcutSet(CustomShortcutSet.fromString("LEFT"), this);
     forward.registerCustomShortcutSet(CustomShortcutSet.fromString("RIGHT"), this);
     myExternalDocAction.registerCustomShortcutSet(CustomShortcutSet.fromString("UP"), this);
+    edit.registerCustomShortcutSet(CommonShortcuts.getEditSource(), this);
     if (additionalActions != null) {
       for (final AnAction action : additionalActions) {
         actions.add(action);
@@ -362,14 +372,14 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
   private JComponent createSettingsPanel() {
     JPanel result = new JPanel(new FlowLayout(FlowLayout.RIGHT, 3, 0));
     result.add(new JLabel(ApplicationBundle.message("label.font.size")));
-    myFontSizeSlider = new JSlider(JSlider.HORIZONTAL, 0, FontSize.values().length - 1, 3);
+    myFontSizeSlider = new JSlider(SwingConstants.HORIZONTAL, 0, FontSize.values().length - 1, 3);
     myFontSizeSlider.setMinorTickSpacing(1);
     myFontSizeSlider.setPaintTicks(true);
     myFontSizeSlider.setPaintTrack(true);
     myFontSizeSlider.setSnapToTicks(true);
     UIUtil.setSliderIsFilled(myFontSizeSlider, true);
     result.add(myFontSizeSlider);
-    result.setBorder(BorderFactory.createLineBorder(UIUtil.getBorderColor(), 1));
+    result.setBorder(BorderFactory.createLineBorder(JBColor.border(), 1));
 
     myFontSizeSlider.addChangeListener(new ChangeListener() {
       @Override
@@ -409,11 +419,11 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
     }
   }
 
-  public synchronized boolean isEmpty() {
+  public boolean isEmpty() {
     return myIsEmpty;
   }
 
-  public synchronized void startWait() {
+  public void startWait() {
     myIsEmpty = true;
   }
 
@@ -455,7 +465,7 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
       myForwardStack.clear();
     }
     updateControlState();
-    setData(element, text, clearHistory);
+    setData(element, text, clearHistory, null);
     if (clean) {
       myIsEmpty = false;
     }
@@ -464,7 +474,8 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
   }
 
   public void replaceText(String text, PsiElement element) {
-    if (element == null || getElement() != element) return;
+    PsiElement current = getElement();
+    if (current == null || !current.getManager().areElementsEquivalent(current, element)) return;
     setText(text, element, false);
     if (!myBackStack.empty()) myBackStack.pop();
   }
@@ -474,7 +485,8 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
     myBackStack.clear();
   }
 
-  public void setData(PsiElement _element, String text, final boolean clearHistory) {
+  public void setData(PsiElement _element, String text, final boolean clearHistory, String effectiveExternalUrl) {
+    myEffectiveExternalUrl = effectiveExternalUrl;
     if (myElement != null) {
       myBackStack.push(saveContext());
       myForwardStack.clear();
@@ -500,10 +512,10 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
   }
 
   private void setDataInternal(SmartPsiElementPointer element, String text, final Rectangle viewRect, boolean skip) {
-    boolean justShown = false;
 
     myElement = element;
 
+    boolean justShown = false;
     if (!myIsShown && myHint != null) {
       myEditorPane.setText(text);
       applyFontSize();
@@ -520,6 +532,7 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
       myText = text;
     }
 
+    //noinspection SSBasedInspection
     SwingUtilities.invokeLater(new Runnable() {
       @Override
       public void run() {
@@ -619,6 +632,36 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
     }
   }
 
+  private class EditDocumentationSourceAction extends BaseNavigateToSourceAction {
+
+    EditDocumentationSourceAction() {
+      super(true);
+      getTemplatePresentation().setIcon(AllIcons.Actions.EditSource);
+      getTemplatePresentation().setText("Edit Source");
+    }
+
+    @Override
+    public void actionPerformed(AnActionEvent e) {
+      super.actionPerformed(e);
+      final JBPopup hint = myHint;
+      if (hint != null && hint.isVisible()) {
+        hint.cancel();
+      }
+    }
+
+    @Nullable
+    @Override
+    protected Navigatable[] getNavigatables(DataContext dataContext) {
+      SmartPsiElementPointer element = myElement;
+      if (element != null) {
+        PsiElement psiElement = element.getElement();
+        return psiElement instanceof Navigatable ? new Navigatable[] {(Navigatable)psiElement} : null;
+      }
+      return null;
+    }
+  }
+
+
   private class ExternalDocAction extends AnAction implements HintManagerImpl.ActionToIgnore {
     public ExternalDocAction() {
       super(CodeInsightBundle.message("javadoc.action.view.external"), null, AllIcons.Actions.Browser_externalJavaDoc);
@@ -633,8 +676,8 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
         final PsiElement originalElement = DocumentationManager.getOriginalElement(element);
         boolean processed = false;
         if (provider instanceof CompositeDocumentationProvider) {
-          for (final DocumentationProvider documentationProvider : ((CompositeDocumentationProvider)provider).getProviders()) {
-            if (documentationProvider instanceof ExternalDocumentationHandler && ((ExternalDocumentationHandler)documentationProvider).handleExternal(element, originalElement)) {
+          for (DocumentationProvider p : ((CompositeDocumentationProvider)provider).getAllProviders()) {
+            if (p instanceof ExternalDocumentationHandler && ((ExternalDocumentationHandler)p).handleExternal(element, originalElement)) {
               processed = true;
               break;
             }
@@ -642,10 +685,16 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
         }
 
         if (!processed) {
-          final List<String> urls = provider.getUrlFor(element, originalElement);
-          assert urls != null : provider;
-          assert !urls.isEmpty() : provider;
-          ExternalJavaDocAction.showExternalJavadoc(urls);
+          final Component component = PlatformDataKeys.CONTEXT_COMPONENT.getData(e.getDataContext());
+          final List<String> urls;
+          if (!StringUtil.isEmptyOrSpaces(myEffectiveExternalUrl)) {
+            urls = Collections.singletonList(myEffectiveExternalUrl);
+          } else {
+            urls = provider.getUrlFor(element, originalElement);
+            assert urls != null : provider;
+            assert !urls.isEmpty() : provider;
+          }
+          ExternalJavaDocAction.showExternalJavadoc(urls, component);
         }
       }
     }
@@ -749,7 +798,7 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
       }
     });
 
-    myKeyboardActions.put(KeyStroke.getKeyStroke(KeyEvent.VK_HOME, KeyEvent.CTRL_MASK), new ActionListener() {
+    myKeyboardActions.put(KeyStroke.getKeyStroke(KeyEvent.VK_HOME, InputEvent.CTRL_MASK), new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
         JScrollBar scrollBar = myScrollPane.getVerticalScrollBar();
@@ -757,7 +806,7 @@ public class DocumentationComponent extends JPanel implements Disposable, DataPr
       }
     });
 
-    myKeyboardActions.put(KeyStroke.getKeyStroke(KeyEvent.VK_END, KeyEvent.CTRL_MASK), new ActionListener() {
+    myKeyboardActions.put(KeyStroke.getKeyStroke(KeyEvent.VK_END, InputEvent.CTRL_MASK), new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
         JScrollBar scrollBar = myScrollPane.getVerticalScrollBar();

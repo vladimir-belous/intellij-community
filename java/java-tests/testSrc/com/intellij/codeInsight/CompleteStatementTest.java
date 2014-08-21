@@ -17,9 +17,6 @@ package com.intellij.codeInsight;
 
 import com.intellij.JavaTestUtil;
 import com.intellij.openapi.actionSystem.IdeActions;
-import com.intellij.openapi.roots.LanguageLevelProjectExtension;
-import com.intellij.pom.java.LanguageLevel;
-import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
@@ -53,6 +50,18 @@ public class CompleteStatementTest extends EditorActionTestCase {
   public void testCompleteCatch() throws Exception { doTest(); }
   
   public void testCompleteCatchLParen() throws Exception { doTest(); }
+
+  public void testAlreadyCompleteCatch() throws Exception {
+    CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
+    int old = settings.BRACE_STYLE;
+    settings.BRACE_STYLE = CommonCodeStyleSettings.NEXT_LINE;
+    try {
+      doTest();
+    }
+    finally {
+      settings.BRACE_STYLE = old;
+    }
+  }
 
   public void testCompleteCatchWithExpression() throws Exception { doTest(); }
 
@@ -107,6 +116,10 @@ public class CompleteStatementTest extends EditorActionTestCase {
   public void testMethod() throws Exception { doTest(); }
 
   public void testClass() throws Exception { doTest(); }
+  
+  public void testInnerEnumBeforeMethod() { doTest(); }
+  
+  public void testInnerEnumBeforeMethodWithSpace() { doTest(); }
 
   public void testCompleteElseIf() throws Exception { doTest(); }
 
@@ -143,6 +156,8 @@ public class CompleteStatementTest extends EditorActionTestCase {
 
   public void testFieldBeforeAnnotation() throws Exception { doTest(); }
   public void testMethodBeforeAnnotation() throws Exception { doTest(); }
+  public void testMethodBeforeCommentField() throws Exception { doTest(); }
+  public void testMethodBeforeCommentMethod() throws Exception { doTest(); }
 
   public void testParenthesized() throws Exception { doTest(); }
 
@@ -165,8 +180,6 @@ public class CompleteStatementTest extends EditorActionTestCase {
   }
 
   public void testSCR36110() throws Exception {
-    JavaPsiFacade facade = JavaPsiFacade.getInstance(getProject());
-    LanguageLevel old = LanguageLevelProjectExtension.getInstance(facade.getProject()).getLanguageLevel();
     doTest();
   }
 
@@ -195,6 +208,7 @@ public class CompleteStatementTest extends EditorActionTestCase {
   public void testSwitchKeyword() throws Exception { doTest(); }
 
   public void testSwitchKeywordWithCondition() throws Exception { doTest(); }
+  public void testCaseColon() { doTest(); }
 
   public void testNewInParentheses() throws Exception { doTest(); }
   
@@ -254,6 +268,8 @@ public class CompleteStatementTest extends EditorActionTestCase {
   
   public void testGenericMethodBody() throws Exception { doTest(); }
   
+  public void testArrayInitializerRBracket() throws Exception { doTest(); }
+  
   private void doTestBracesNextLineStyle() throws Exception {
     CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
     settings.BRACE_STYLE = CommonCodeStyleSettings.NEXT_LINE;
@@ -269,11 +285,11 @@ public class CompleteStatementTest extends EditorActionTestCase {
     }
   }
 
-  private void doTest() throws Exception {
+  private void doTest() {
     doTest("java");
   }
 
-  private void doTest(String ext) throws Exception {
+  private void doTest(String ext) {
     String path = "/codeInsight/completeStatement/";
     doFileTest(path + getTestName(false) + "." + ext, path + getTestName(false) + "_after." + ext, true);
   }

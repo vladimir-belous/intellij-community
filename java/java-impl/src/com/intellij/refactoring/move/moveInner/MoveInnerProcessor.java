@@ -214,40 +214,33 @@ public class MoveInnerProcessor extends BaseRefactoringProcessor {
 
       // correct references in usages
       for (UsageInfo usage : usages) {
-        if (usage.isNonCodeUsage) continue;
-        PsiElement refElement = usage.getElement();
-        if (myParameterNameOuterClass != null) { // should pass outer as parameter
-          PsiElement refParent = refElement.getParent();
-          if (refParent instanceof PsiNewExpression || refParent instanceof PsiAnonymousClass) {
-            PsiNewExpression newExpr = refParent instanceof PsiNewExpression
-                                       ? (PsiNewExpression)refParent
-                                       : (PsiNewExpression)refParent.getParent();
+        if (usage.isNonCodeUsage || myParameterNameOuterClass == null) continue; // should pass outer as parameter
 
-            PsiExpressionList argList = newExpr.getArgumentList();
-
-            if (argList != null) { // can happen in incomplete code
-              if (newExpr.getQualifier() == null) {
-                PsiThisExpression thisExpr;
-                PsiClass parentClass = RefactoringChangeUtil.getThisClass(newExpr);
-                if (myOuterClass.equals(parentClass)) {
-                  thisExpr = RefactoringChangeUtil.createThisExpression(manager, null);
-                }
-                else {
-                  thisExpr = RefactoringChangeUtil.createThisExpression(manager, myOuterClass);
-                }
-                argList.addAfter(thisExpr, null);
-              }
-              else {
-                argList.addAfter(newExpr.getQualifier(), null);
-                newExpr.getQualifier().delete();
-              }
-            }
-          }
+        MoveInnerClassUsagesHandler usagesHandler = MoveInnerClassUsagesHandler.EP_NAME.forLanguage(usage.getElement().getLanguage());
+        if (usagesHandler != null) {
+          usagesHandler.correctInnerClassUsage(usage, myOuterClass);
         }
       }
 
       for (PsiReference reference : referencesToRebind) {
         reference.bindToElement(newClass);
+      }
+
+      for (UsageInfo usage : usages) {
+        final PsiElement element = usage.getElement();
+        final PsiElement parent = element != null ? element.getParent() : null;
+        if (parent instanceof PsiNewExpression) {
+          final PsiMethod resolveConstructor = ((PsiNewExpression)parent).resolveConstructor();
+          for (PsiMethod method : newClass.getConstructors()) {
+            if (resolveConstructor == method) {
+              final PsiElement place = usage.getElement();
+              if (place != null) {
+                VisibilityUtil.escalateVisibility(method, place);
+              }
+              break;
+            }
+          }
+        }
       }
 
       if (field != null) {

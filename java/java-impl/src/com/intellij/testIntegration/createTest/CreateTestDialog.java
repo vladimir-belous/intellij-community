@@ -126,10 +126,7 @@ public class CreateTestDialog extends DialogWrapper {
     for (final TestFramework descriptor : Extensions.getExtensions(TestFramework.EXTENSION_NAME)) {
       final JRadioButton b = new JRadioButton(descriptor.getName());
       if (descriptor instanceof JavaTestFramework) {
-        final char mnemonic = ((JavaTestFramework)descriptor).getMnemonic();
-        if (mnemonic > -1) {
-          b.setMnemonic(mnemonic);
-        }
+        b.setMnemonic(((JavaTestFramework)descriptor).getMnemonic());
       }
       myLibraryButtons.add(b);
       group.add(b);
@@ -173,14 +170,18 @@ public class CreateTestDialog extends DialogWrapper {
       public void actionPerformed(ActionEvent e) {
         ApplicationManager.getApplication().runWriteAction(new Runnable() {
           public void run() {
-            OrderEntryFix.addJarToRoots(mySelectedFramework.getLibraryPath(), myTargetModule, null);
+            if (mySelectedFramework instanceof JavaTestFramework) {
+              ((JavaTestFramework)mySelectedFramework).setupLibrary(myTargetModule);
+            } else {
+              OrderEntryFix.addJarToRoots(mySelectedFramework.getLibraryPath(), myTargetModule, null);
+            }
           }
         });
         myFixLibraryPanel.setVisible(false);
       }
     });
 
-    myTargetClassNameField = new EditorTextField(targetClass.getName() + "Test");
+    myTargetClassNameField = new EditorTextField(suggestTestClassName(targetClass));
     myTargetClassNameField.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
       public void documentChanged(DocumentEvent e) {
@@ -214,6 +215,10 @@ public class CreateTestDialog extends DialogWrapper {
     restoreShowInheritedMembersStatus();
     myMethodsTable = new MemberSelectionTable(Collections.<MemberInfo>emptyList(), null);
     updateMethodsTable();
+  }
+
+  protected String suggestTestClassName(PsiClass targetClass) {
+    return targetClass.getName() + "Test";
   }
 
   private boolean isSuperclassSelectedManually() {

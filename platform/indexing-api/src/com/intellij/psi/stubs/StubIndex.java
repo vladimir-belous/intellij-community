@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.Processor;
 import com.intellij.util.indexing.FileBasedIndex;
 import com.intellij.util.indexing.IdFilter;
@@ -51,7 +52,7 @@ public abstract class StubIndex {
   public abstract <Key, Psi extends PsiElement> Collection<Psi> get(@NotNull StubIndexKey<Key, Psi> indexKey,
                                                                     @NotNull Key key,
                                                                     @NotNull Project project,
-                                                                    final GlobalSearchScope scope);
+                                                                    @Nullable final GlobalSearchScope scope);
 
   /**
    * @deprecated use {@link #getElements(StubIndexKey, Object, com.intellij.openapi.project.Project, com.intellij.psi.search.GlobalSearchScope, Class)}
@@ -59,22 +60,47 @@ public abstract class StubIndex {
   public <Key, Psi extends PsiElement> Collection<Psi> get(@NotNull StubIndexKey<Key, Psi> indexKey,
                                                                     @NotNull Key key,
                                                                     @NotNull Project project,
-                                                                    final GlobalSearchScope scope,
+                                                                    @Nullable final GlobalSearchScope scope,
                                                                     IdFilter filter) {
     return get(indexKey, key, project, scope);
   }
 
-  public abstract <Key, Psi extends PsiElement> boolean process(@NotNull StubIndexKey<Key, Psi> indexKey,
-                                                                @NotNull Key key,
-                                                                @NotNull Project project,
-                                                                GlobalSearchScope scope,
-                                                                @NotNull Processor<? super Psi> processor);
-
+  /**
+   * @deprecated use processElements
+   */
   public <Key, Psi extends PsiElement> boolean process(@NotNull StubIndexKey<Key, Psi> indexKey,
                                                                 @NotNull Key key,
                                                                 @NotNull Project project,
-                                                                GlobalSearchScope scope,
+                                                                @Nullable GlobalSearchScope scope,
+                                                                @NotNull Processor<? super Psi> processor) {
+    return processElements(indexKey, key, project, scope, (Class<Psi>)PsiElement.class, processor);
+  }
+
+  public abstract <Key, Psi extends PsiElement> boolean processElements(@NotNull StubIndexKey<Key, Psi> indexKey,
+                                                                @NotNull Key key,
+                                                                @NotNull Project project,
+                                                                @Nullable GlobalSearchScope scope,
+                                                                Class<Psi> requiredClass,
+                                                                @NotNull Processor<? super Psi> processor);
+
+  /**
+   * @deprecated use processElements
+   */
+  public <Key, Psi extends PsiElement> boolean process(@NotNull StubIndexKey<Key, Psi> indexKey,
+                                                                @NotNull Key key,
+                                                                @NotNull Project project,
+                                                                @Nullable GlobalSearchScope scope,
+                                                                @SuppressWarnings("UnusedParameters") IdFilter idFilter,
+                                                                @NotNull Processor<? super Psi> processor) {
+    return process(indexKey, key, project, scope, processor);
+  }
+
+  public <Key, Psi extends PsiElement> boolean processElements(@NotNull StubIndexKey<Key, Psi> indexKey,
+                                                                @NotNull Key key,
+                                                                @NotNull Project project,
+                                                                @Nullable GlobalSearchScope scope,
                                                                 IdFilter idFilter,
+                                                                @NotNull Class<Psi> requiredClass,
                                                                 @NotNull Processor<? super Psi> processor) {
     return process(indexKey, key, project, scope, processor);
   }
@@ -84,8 +110,9 @@ public abstract class StubIndex {
 
   public abstract <K> boolean processAllKeys(@NotNull StubIndexKey<K, ?> indexKey, @NotNull Project project, Processor<K> processor);
 
-  public <K> boolean processAllKeys(@NotNull StubIndexKey<K, ?> indexKey, Processor<K> processor, GlobalSearchScope scope, @Nullable IdFilter idFilter) {
-    return processAllKeys(indexKey, scope.getProject(), processor);
+  public <K> boolean processAllKeys(@NotNull StubIndexKey<K, ?> indexKey, @NotNull Processor<K> processor,
+                                    @NotNull GlobalSearchScope scope, @Nullable IdFilter idFilter) {
+    return processAllKeys(indexKey, ObjectUtils.assertNotNull(scope.getProject()), processor);
   }
 
   /**
@@ -102,7 +129,7 @@ public abstract class StubIndex {
   public static <Key, Psi extends PsiElement> Collection<Psi> getElements(@NotNull StubIndexKey<Key, Psi> indexKey,
                                                                           @NotNull Key key,
                                                                           @NotNull final Project project,
-                                                                          final GlobalSearchScope scope,
+                                                                          @Nullable final GlobalSearchScope scope,
                                                                           @NotNull Class<Psi> requiredClass) {
     return getElements(indexKey, key, project, scope, null, requiredClass);
   }
@@ -110,7 +137,7 @@ public abstract class StubIndex {
   public static <Key, Psi extends PsiElement> Collection<Psi> getElements(@NotNull StubIndexKey<Key, Psi> indexKey,
                                                                           @NotNull Key key,
                                                                           @NotNull final Project project,
-                                                                          final GlobalSearchScope scope,
+                                                                          @Nullable final GlobalSearchScope scope,
                                                                           @Nullable IdFilter idFilter,
                                                                           @NotNull Class<Psi> requiredClass) {
     //noinspection deprecation
@@ -135,5 +162,5 @@ public abstract class StubIndex {
   protected <Psi extends PsiElement> void reportStubPsiMismatch(Psi psi, VirtualFile file, Class<Psi> requiredClass) {
     LOG.error("Invalid stub element type in index: " + file + ". found: " + psi + ". expected: " + requiredClass);
   }
-
+  public abstract void forceRebuild(@NotNull Throwable e);
 }

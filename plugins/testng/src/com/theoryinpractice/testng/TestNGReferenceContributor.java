@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,6 @@ import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.codeInsight.lookup.LookupValueFactory;
 import com.intellij.codeInspection.InspectionProfile;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.patterns.PlatformPatterns;
 import com.intellij.patterns.PsiElementPattern;
@@ -55,7 +54,7 @@ public class TestNGReferenceContributor extends PsiReferenceContributor {
     return PlatformPatterns.psiElement(PsiLiteralExpression.class).and(new FilterPattern(new TestAnnotationFilter(annotation)));
   }
 
-  public void registerReferenceProviders(PsiReferenceRegistrar registrar) {
+  public void registerReferenceProviders(@NotNull PsiReferenceRegistrar registrar) {
     registrar.registerReferenceProvider(getElementPattern("dependsOnMethods"), new PsiReferenceProvider() {
       @NotNull
       public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
@@ -132,6 +131,7 @@ public class TestNGReferenceContributor extends PsiReferenceContributor {
             final PsiAnnotationMemberValue memberValue = dataProviderAnnotation.findDeclaredAttributeValue("name");
             if (memberValue != null) {
               list.add(LookupValueFactory.createLookupValue(StringUtil.unquoteString(memberValue.getText()), null));
+            } else {
               list.add(LookupValueFactory.createLookupValue(method.getName(), null));
             }
           }

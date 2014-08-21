@@ -22,23 +22,37 @@ import com.intellij.openapi.vcs.actions.VcsContextFactory;
 import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vcs.diff.DiffMixin;
 import com.intellij.openapi.vcs.diff.DiffProvider;
+import com.intellij.openapi.vcs.diff.DiffProviderEx;
 import com.intellij.openapi.vcs.diff.ItemLatestState;
 import com.intellij.openapi.vcs.history.VcsRevisionDescription;
 import com.intellij.openapi.vcs.history.VcsRevisionDescriptionImpl;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.svn.commandLine.SvnBindException;
 import org.jetbrains.idea.svn.history.LatestExistentSearcher;
+import org.jetbrains.idea.svn.info.Info;
+import org.jetbrains.idea.svn.info.InfoConsumer;
+import org.jetbrains.idea.svn.properties.PropertyValue;
+import org.jetbrains.idea.svn.status.Status;
+import org.jetbrains.idea.svn.status.StatusType;
 import org.tmatesoft.svn.core.SVNException;
-import org.tmatesoft.svn.core.SVNPropertyValue;
 import org.tmatesoft.svn.core.SVNURL;
-import org.tmatesoft.svn.core.wc.*;
+import org.tmatesoft.svn.core.wc.SVNRevision;
 import org.tmatesoft.svn.core.wc2.SvnTarget;
 
 import java.io.File;
+import java.util.List;
+import java.util.Map;
 
-public class SvnDiffProvider implements DiffProvider, DiffMixin {
+public class SvnDiffProvider extends DiffProviderEx implements DiffProvider, DiffMixin {
   private static final Logger LOG = Logger.getInstance("#org.jetbrains.idea.svn.SvnDiffProvider");
   public static final String COMMIT_MESSAGE = "svn:log";
+  private static final int BATCH_INFO_SIZE = 20;
+
   private final SvnVcs myVcs;
 
   public SvnDiffProvider(final SvnVcs vcs) {
@@ -46,12 +60,74 @@ public class SvnDiffProvider implements DiffProvider, DiffMixin {
   }
 
   public VcsRevisionNumber getCurrentRevision(VirtualFile file) {
-    final SVNInfo svnInfo = myVcs.getInfo(new File(file.getPresentableUrl()));
-    if (svnInfo == null) return null;
-    if (SVNRevision.UNDEFINED.equals(svnInfo.getCommittedRevision()) && svnInfo.getCopyFromRevision() != null) {
-      return new SvnRevisionNumber(svnInfo.getCopyFromRevision());
+    final Info svnInfo = myVcs.getInfo(new File(file.getPresentableUrl()));
+
+    return getRevision(svnInfo);
+  }
+
+  @Nullable
+  private static VcsRevisionNumber getRevision(@Nullable Info info) {
+    VcsRevisionNumber result = null;
+
+    if (info != null) {
+      SVNRevision revision = SVNRevision.UNDEFINED.equals(info.getCommittedRevision()) && info.getCopyFromRevision() != null
+                             ? info.getCopyFromRevision()
+                             : info.getRevision();
+
+      result = new SvnRevisionNumber(revision);
     }
-    return new SvnRevisionNumber(svnInfo.getRevision());
+
+    return result;
+  }
+
+  @Override
+  public Map<VirtualFile, VcsRevisionNumber> getCurrentRevisions(Iterable<VirtualFile> files) {
+    Map<VirtualFile, VcsRevisionNumber> result = ContainerUtil.newHashMap();
+    Map<String, VirtualFile> items = ContainerUtil.newHashMap();
+    List<File> ioFiles = ContainerUtil.newArrayList();
+
+    for (VirtualFile file : files) {
+      File ioFile = VfsUtilCore.virtualToIoFile(file);
+      ioFiles.add(ioFile);
+      items.put(ioFile.getAbsolutePath(), file);
+
+      // process in blocks of BATCH_INFO_SIZE size
+      if (items.size() == BATCH_INFO_SIZE) {
+        collectRevisionsInBatch(result, items, ioFiles);
+        items.clear();
+        ioFiles.clear();
+      }
+    }
+    // process left files
+    collectRevisionsInBatch(result, items, ioFiles);
+
+    return result;
+  }
+
+  private void collectRevisionsInBatch(@NotNull final Map<VirtualFile, VcsRevisionNumber> revisionMap,
+                                       @NotNull final Map<String, VirtualFile> fileMap,
+                                       @NotNull List<File> ioFiles) {
+    myVcs.collectInfo(ioFiles, createInfoHandler(revisionMap, fileMap));
+  }
+
+  @NotNull
+  private static InfoConsumer createInfoHandler(@NotNull final Map<VirtualFile, VcsRevisionNumber> revisionMap,
+                                                   @NotNull final Map<String, VirtualFile> fileMap) {
+    return new InfoConsumer() {
+      @Override
+      public void consume(Info info) throws SVNException {
+        if (info != null) {
+          VirtualFile file = fileMap.get(info.getFile().getAbsolutePath());
+
+          if (file != null) {
+            revisionMap.put(file, getRevision(info));
+          }
+          else {
+            LOG.info("Could not find virtual file for path " + info.getFile().getAbsolutePath());
+          }
+        }
+      }
+    };
   }
 
   @Override
@@ -61,7 +137,7 @@ public class SvnDiffProvider implements DiffProvider, DiffMixin {
   }
 
   private VcsRevisionDescription getCurrentRevisionDescription(File path) {
-    final SVNInfo svnInfo = myVcs.getInfo(path);
+    final Info svnInfo = myVcs.getInfo(path);
     if (svnInfo == null) {
       return null;
     }
@@ -81,16 +157,17 @@ public class SvnDiffProvider implements DiffProvider, DiffMixin {
                                             svnInfo.getAuthor(), message);
     }
     catch (VcsException e) {
-      LOG.debug(e);    // most likely the file is unversioned
+      LOG.info(e);    // most likely the file is unversioned
       return null;
     }
   }
 
+  @Nullable
   private String getCommitMessage(File path) throws VcsException {
-    SVNPropertyData property =
+    PropertyValue property =
       myVcs.getFactory(path).createPropertyClient().getProperty(SvnTarget.fromFile(path), COMMIT_MESSAGE, true, SVNRevision.BASE);
 
-    return property != null ? SVNPropertyValue.getPropertyAsString(property.getValue()) : null;
+    return PropertyValue.toString(property);
   }
 
   private static ItemLatestState defaultResult() {
@@ -116,20 +193,20 @@ public class SvnDiffProvider implements DiffProvider, DiffMixin {
     }
 
     // not clear why we need it, with remote check..
-    SVNStatus svnStatus = getFileStatus(new File(selectedFile.getPresentableUrl()), false);
+    Status svnStatus = getFileStatus(new File(selectedFile.getPresentableUrl()), false);
     if (svnStatus != null && svnRevision.equals(svnStatus.getRevision())) {
         return SvnContentRevision.createBaseRevision(myVcs, filePath, svnRevision);
     }
     return SvnContentRevision.createRemote(myVcs, filePath, svnRevision);
   }
 
-  private SVNStatus getFileStatus(File file, boolean remote) {
-    SVNStatus result = null;
+  private Status getFileStatus(File file, boolean remote) {
+    Status result = null;
 
     try {
-      result = myVcs.getFactory(file).createStatusClient().doStatus(file, remote, false);
+      result = myVcs.getFactory(file).createStatusClient().doStatus(file, remote);
     }
-    catch (SVNException e) {
+    catch (SvnBindException e) {
       LOG.debug(e);
     }
 
@@ -146,10 +223,10 @@ public class SvnDiffProvider implements DiffProvider, DiffMixin {
   }
 
   private ItemLatestState getLastRevision(final File file) {
-    final SVNStatus svnStatus = getFileStatus(file, true);
+    final Status svnStatus = getFileStatus(file, true);
     if (svnStatus == null || itemExists(svnStatus) && SVNRevision.UNDEFINED.equals(svnStatus.getRemoteRevision())) {
       // IDEADEV-21785 (no idea why this can happen)
-      final SVNInfo info = myVcs.getInfo(file, SVNRevision.HEAD);
+      final Info info = myVcs.getInfo(file, SVNRevision.HEAD);
       if (info == null || info.getURL() == null) {
         LOG.info("No SVN status returned for " + file.getPath());
         return defaultResult();
@@ -161,13 +238,17 @@ public class SvnDiffProvider implements DiffProvider, DiffMixin {
       WorkingCopyFormat format = myVcs.getWorkingCopyFormat(file);
       long revision = -1;
 
-      // skipped for 1.8
-      if (!WorkingCopyFormat.ONE_DOT_EIGHT.equals(format)) {
+      // skipped for >= 1.8
+      if (format.less(WorkingCopyFormat.ONE_DOT_EIGHT)) {
         // get really latest revision
         // TODO: Algorithm seems not to be correct in all cases - for instance, when some subtree was deleted and replaced by other
         // TODO: with same names. pegRevision should be used somehow but this complicates the algorithm
-        final LatestExistentSearcher searcher = new LatestExistentSearcher(myVcs, svnStatus.getURL());
-        revision = searcher.getDeletionRevision();
+        if (svnStatus.getRepositoryRootURL() != null) {
+          revision = new LatestExistentSearcher(myVcs, svnStatus.getURL(), svnStatus.getRepositoryRootURL()).getDeletionRevision();
+        }
+        else {
+          LOG.info("Could not find repository url for file " + file);
+        }
       }
 
       return createResult(SVNRevision.create(revision), exists, false);
@@ -179,8 +260,8 @@ public class SvnDiffProvider implements DiffProvider, DiffMixin {
     return createResult(svnStatus.getRevision(), exists, false);
   }
 
-  private boolean itemExists(SVNStatus svnStatus) {
-    return ! SVNStatusType.STATUS_DELETED.equals(svnStatus.getRemoteContentsStatus()) &&
-      ! SVNStatusType.STATUS_DELETED.equals(svnStatus.getRemoteNodeStatus());
+  private boolean itemExists(Status svnStatus) {
+    return ! StatusType.STATUS_DELETED.equals(svnStatus.getRemoteContentsStatus()) &&
+      ! StatusType.STATUS_DELETED.equals(svnStatus.getRemoteNodeStatus());
   }
 }

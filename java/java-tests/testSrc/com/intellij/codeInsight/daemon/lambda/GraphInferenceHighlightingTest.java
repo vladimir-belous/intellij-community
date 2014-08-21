@@ -16,10 +16,13 @@
 package com.intellij.codeInsight.daemon.lambda;
 
 import com.intellij.codeInsight.daemon.LightDaemonAnalyzerTestCase;
+import com.intellij.idea.Bombed;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.testFramework.IdeaTestUtil;
 import org.jetbrains.annotations.NonNls;
+
+import java.util.Calendar;
 
 public class GraphInferenceHighlightingTest extends LightDaemonAnalyzerTestCase {
   @NonNls static final String BASE_PATH = "/codeInsight/daemonCodeAnalyzer/lambda/graphInference";
@@ -44,10 +47,12 @@ public class GraphInferenceHighlightingTest extends LightDaemonAnalyzerTestCase 
     doTest();
   }
 
+  @Bombed(day = 30, month = Calendar.AUGUST)
   public void testInferenceFromSiblings() throws Exception {
     doTest();
   }
 
+  @Bombed(day = 30, month = Calendar.AUGUST)
   public void testChainedInferenceTypeParamsOrderIndependent() throws Exception {
     doTest();
   }
@@ -92,6 +97,10 @@ public class GraphInferenceHighlightingTest extends LightDaemonAnalyzerTestCase 
     doTest();
   }
 
+  public void testClsCapturedReturnTypes() throws Exception {
+    doTest();
+  }
+
   public void testOverloadChooserOfReturnType() throws Exception {
     doTest();
   }
@@ -105,6 +114,106 @@ public class GraphInferenceHighlightingTest extends LightDaemonAnalyzerTestCase 
   }
 
   public void testJDK8028774() throws Exception {
+    doTest();
+  }
+
+  public void testErasedByReturnConstraint() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA104429() throws Exception {
+    doTest();
+  }
+
+  public void testTargetTypeByOverloadedMethod() throws Exception {
+    doTest();
+  }
+
+  public void testTargetTypeByOverloadedMethod2() throws Exception {
+    doTest();
+  }
+
+  public void testGrandParentTypeParams() throws Exception {
+    doTest();
+  }
+
+  public void testDeepCallsChain() throws Exception {
+    doTest();
+  }
+
+  public void testArrayPassedToVarargsMethod() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA121055() throws Exception {
+    doTest();
+  }
+
+  public void testTargetTypeByAnonymousClass() throws Exception {
+    doTest();
+  }
+
+  public void testStaticInheritorsAmbiguity() throws Exception {
+    doTest();
+  }
+
+  public void testNestedCalls1() throws Exception {
+    doTest();
+  }
+
+  public void testMostSpecificVarargsCase() throws Exception {
+    doTest();
+  }
+
+  public void testLiftedCaptureToOuterCall() throws Exception {
+    doTest();
+  }
+
+  public void testSiteSubstitutionForReturnConstraint() throws Exception {
+    doTest();
+  }
+
+  public void testIncorporationWithEqualsBoundsSubstitution() throws Exception {
+    doTest();
+  }
+
+  public void testOuterCallConflictResolution() throws Exception {
+    doTest();
+  }
+
+  public void testVarargsOnNonPertinentPlace() throws Exception {
+    doTest();
+  }
+
+  public void testRawTypeFromParent() throws Exception {
+    doTest();
+  }
+
+  public void testRawTypeFromParentArrayType() throws Exception {
+    doTest();
+  }
+
+  public void testInferFromConditionalExpressionCondition() throws Exception {
+    doTest();
+  }
+
+  public void testPrimitiveWrapperConditionInReturnConstraint() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA128174() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA128101() throws Exception {
+    doTest();
+  }
+
+  public void testOuterCallOverloads() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA127928() throws Exception {
     doTest();
   }
 

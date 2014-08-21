@@ -33,7 +33,9 @@ public class JavaDocInspectionTest extends InspectionTestCase {
   }
 
   public void testDuplicateThrows() throws Exception {
-    doTest();
+    JavaDocLocalInspection tool = new JavaDocLocalInspection();
+    tool.setIgnoreDuplicatedThrows(false);
+    doTest("javaDocInspection/" + getTestName(true), tool);
   }
 
   //inherited javadoc
@@ -59,9 +61,14 @@ public class JavaDocInspectionTest extends InspectionTestCase {
     doTest();
   }
 
+  public void testEnumConstructor() throws Exception {
+    final JavaDocLocalInspection localInspection = new JavaDocLocalInspection();
+    localInspection.METHOD_OPTIONS.ACCESS_JAVADOC_REQUIRED_FOR = "package";
+    doTest("javaDocInspection/" + getTestName(true), localInspection);
+  }
+
   public void testIgnoreDuplicateThrows() throws Exception {
     final JavaDocLocalInspection inspection = new JavaDocLocalInspection();
-    inspection.IGNORE_DUPLICATED_THROWS = true;
     doTest("javaDocInspection/" + getTestName(true), inspection);
   }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,13 +17,9 @@ package com.intellij.ide.plugins;
 
 import com.intellij.ide.ui.SplitterProportionsDataImpl;
 import com.intellij.openapi.components.*;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.PerformInBackgroundOption;
 import com.intellij.openapi.ui.SplitterProportionsData;
-import com.intellij.openapi.util.DefaultJDOMExternalizer;
-import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMExternalizableStringList;
-import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.util.xmlb.SkipDefaultValuesSerializationFilters;
 import com.intellij.util.xmlb.XmlSerializer;
 import org.jdom.Element;
@@ -42,12 +38,11 @@ import javax.swing.*;
   }
 )
 public class PluginManagerUISettings implements PersistentStateComponent<Element>, PerformInBackgroundOption {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.plugins.PluginManagerUISettings");
   private static final SkipDefaultValuesSerializationFilters FILTERS = new SkipDefaultValuesSerializationFilters();
 
   public int AVAILABLE_SORT_COLUMN_ORDER = SortOrder.ASCENDING.ordinal();
 
-  public int AVAILABLE_SORT_MODE = 0;
+  public int AVAILABLE_SORT_MODE = 1;
   public boolean AVAILABLE_SORT_BY_STATUS = false;
   public boolean INSTALLED_SORT_BY_STATUS = false;
   public boolean UPDATE_IN_BACKGROUND = false;
@@ -68,6 +63,7 @@ public class PluginManagerUISettings implements PersistentStateComponent<Element
     return ServiceManager.getService(PluginManagerUISettings.class);
   }
 
+  @Override
   public Element getState() {
     Element element = new Element("state");
     XmlSerializer.serializeInto(this, element, FILTERS);
@@ -79,6 +75,7 @@ public class PluginManagerUISettings implements PersistentStateComponent<Element
     return element;
   }
 
+  @Override
   public void loadState(final Element element) {
     XmlSerializer.deserializeInto(this, element);
     XmlSerializer.deserializeInto(mySplitterProportionsData, element);

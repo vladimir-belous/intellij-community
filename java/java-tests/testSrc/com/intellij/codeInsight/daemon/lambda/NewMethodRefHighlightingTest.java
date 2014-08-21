@@ -19,10 +19,14 @@ import com.intellij.codeInsight.daemon.LightDaemonAnalyzerTestCase;
 import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.uncheckedWarnings.UncheckedWarningLocalInspection;
 import com.intellij.codeInspection.unusedSymbol.UnusedSymbolLocalInspection;
+import com.intellij.idea.Bombed;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
+import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.testFramework.IdeaTestUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.Calendar;
 
 public class NewMethodRefHighlightingTest extends LightDaemonAnalyzerTestCase {
   @NonNls static final String BASE_PATH = "/codeInsight/daemonCodeAnalyzer/lambda/newMethodRef";
@@ -124,6 +128,183 @@ public class NewMethodRefHighlightingTest extends LightDaemonAnalyzerTestCase {
     doTest();
   }
 
+  public void testCapturingReturnValue() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA117311() throws Exception {
+    doTest();
+  }
+
+  public void testDeepWildcardEliminating() throws Exception {
+    doTest();
+  }
+
+  public void _testLambdaExercise() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA118437() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA113297() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA120376() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA120370() throws Exception {
+    doTest();
+  }
+
+  public void testExcludeContainingClassTypeParamsFromInference() throws Exception {
+    doTest();
+  }
+
+  public void testEnsureTypeParametersAreNotModifiedDuringGroundTypeEvaluation() throws Exception {
+    doTest();
+  }
+
+  public void testIncorrectArrayCreationSignature() throws Exception {
+    doTest();
+  }
+
+  public void testRawTargetType() throws Exception {
+    doTest();
+  }
+
+  public void testReturnTypeCheckForRawReceiver() throws Exception {
+    doTest();
+  }
+
+  public void testStaticNonStaticReferenceTypeAmbiguity() throws Exception {
+    doTest();
+  }
+
+  public void testSuperClassPotentiallyApplicableMembers() throws Exception {
+    doTest();
+  }
+
+  public void testExactMethodReferencePertinentToApplicabilityCheck() throws Exception {
+    doTest();
+  }
+
+  public void testAmbiguityVarargs() throws Exception {
+    doTest();
+  }
+
+  public void testRawInnerClassQualifier() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA122100() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA122509() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA122681() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA112191() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA122018comment() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA123223() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA123248() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA123366() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA123366comment() throws Exception {
+    doTest();
+  }
+
+  public void testFromReferenceWithTypeArgs() throws Exception {
+    doTest();
+  }
+
+  public void testRefOnStaticInterfaceMethod() throws Exception {
+    doTest();
+  }
+
+  public void testUncheckedMethodReference() throws Exception {
+    doTest(true);
+  }
+
+  public void testIDEA124148() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA124613() throws Exception {
+    doTest();
+  }
+
+  public void testCollectingApplicabilityConstraints() {
+    doTest();
+  }
+
+  public void testIDEA126062() {
+    doTest();
+  }
+
+  public void testRejectReceiverTypesForConstructorRefs() {
+    doTest();
+  }
+
+  public void testEnumValuesMethod() throws Exception {
+    doTest();
+  }
+
+  public void testMissedApplicableMemberContainingClassSubstitution() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA126969() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA127506() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA127275() throws Exception {
+    doTest();
+  }
+
+  @Bombed(day = 30, month = Calendar.AUGUST)
+  public void testIDEA127275_() throws Exception {
+    doTest();
+  }
+
+  public void testUnresolvedMethodReference() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA128534() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA128712() throws Exception {
+    doTest();
+  }
+
   private void doTest() {
     doTest(false);
   }
@@ -131,5 +312,10 @@ public class NewMethodRefHighlightingTest extends LightDaemonAnalyzerTestCase {
   private void doTest(boolean warnings) {
     IdeaTestUtil.setTestVersion(JavaSdkVersion.JDK_1_8, getModule(), getTestRootDisposable());
     doTestNewInference(BASE_PATH + "/" + getTestName(false) + ".java", warnings, false);
+  }
+
+  @Override
+  protected Sdk getProjectJDK() {
+    return IdeaTestUtil.getMockJdk18();
   }
 }

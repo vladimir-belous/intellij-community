@@ -23,6 +23,7 @@ import com.intellij.execution.testframework.sm.runner.states.*;
 import com.intellij.execution.testframework.sm.runner.ui.TestsPresentationUtil;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.ide.util.EditSourceUtil;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
@@ -30,6 +31,7 @@ import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.testIntegration.TestLocationProvider;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.ContainerUtilRt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -143,6 +145,13 @@ public class SMTestProxy extends AbstractTestProxy {
     return false;
   }
 
+  /**
+   * @return true if the state is final (PASSED, FAILED, IGNORED, TERMINATED)
+   */
+  public boolean isFinal() {
+    return myState.isFinal();
+  }
+
   private void setStacktraceIfNotSet(@Nullable String stacktrace) {
     if (myStacktrace == null) myStacktrace = stacktrace;
   }
@@ -195,9 +204,10 @@ public class SMTestProxy extends AbstractTestProxy {
            myState.getMagnitude() == TestStateInfo.Magnitude.PASSED_INDEX; 
   }
 
-  public void addChild(final SMTestProxy child) {
+  public void addChild(@NotNull SMTestProxy child) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
     if (myChildren == null) {
-      myChildren = new ArrayList<SMTestProxy>();
+      myChildren = ContainerUtil.newArrayListWithCapacity(4);
     }
     myChildren.add(child);
 
@@ -397,8 +407,7 @@ public class SMTestProxy extends AbstractTestProxy {
     fireOnNewPrintable(myState);
   }
 
-  public void setTestIgnored(@NotNull final String ignoreComment,
-                             @Nullable final String stackTrace) {
+  public void setTestIgnored(@Nullable String ignoreComment, @Nullable String stackTrace) {
     setStacktraceIfNotSet(stackTrace);
     myState = new TestIgnoredState(ignoreComment, stackTrace);
     fireOnNewPrintable(myState);
@@ -635,8 +644,7 @@ public class SMTestProxy extends AbstractTestProxy {
       // test - no matter what we will return
       myIsEmpty = true;
       myIsEmptyIsCached = true;
-
-      return myIsEmpty;
+      return true;
     }
 
     myIsEmpty = true;

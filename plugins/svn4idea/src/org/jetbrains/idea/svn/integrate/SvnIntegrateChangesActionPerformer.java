@@ -23,7 +23,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.svn.SvnBundle;
 import org.jetbrains.idea.svn.SvnConfiguration;
 import org.jetbrains.idea.svn.SvnVcs;
-import org.jetbrains.idea.svn.actions.SelectBranchPopup;
+import org.jetbrains.idea.svn.branchConfig.SelectBranchPopup;
 import org.jetbrains.idea.svn.branchConfig.SvnBranchConfigurationNew;
 import org.tmatesoft.svn.core.SVNException;
 import org.tmatesoft.svn.core.SVNURL;
@@ -69,7 +69,7 @@ public class SvnIntegrateChangesActionPerformer implements SelectBranchPopup.Bra
       return;
     }
     final SvnIntegrateChangesTask task = new SvnIntegrateChangesTask(myVcs, info, myMergerFactory, sourceUrl, SvnBundle.message("action.Subversion.integrate.changes.messages.title"),
-                                                                     SvnConfiguration.getInstance(myVcs.getProject()).MERGE_DRY_RUN, name);
+                                                                     SvnConfiguration.getInstance(myVcs.getProject()).isMergeDryRun(), name);
     ProgressManager.getInstance().run(task);
   }
 

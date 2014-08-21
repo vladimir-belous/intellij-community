@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package org.jetbrains.plugins.groovy.compiler;
 
+import com.intellij.compiler.server.BuildManager;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.Executor;
 import com.intellij.execution.application.ApplicationConfiguration;
@@ -24,6 +25,7 @@ import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.impl.DefaultJavaProgramRunner;
 import com.intellij.execution.process.*;
 import com.intellij.execution.runners.ExecutionEnvironment;
+import com.intellij.execution.runners.ExecutionEnvironmentBuilder;
 import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.openapi.Disposable;
@@ -37,20 +39,22 @@ import com.intellij.openapi.module.StdModuleTypes;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.testFramework.CompilerTester;
 import com.intellij.testFramework.IdeaTestUtil;
+import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.PsiTestUtil;
 import com.intellij.testFramework.builders.JavaModuleFixtureBuilder;
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase;
 import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.config.GroovyFacetUtil;
 import org.jetbrains.plugins.groovy.runner.GroovyScriptRunConfiguration;
 import org.jetbrains.plugins.groovy.runner.GroovyScriptRunConfigurationType;
-import org.jetbrains.plugins.groovy.util.GroovyUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -64,13 +68,11 @@ import java.util.concurrent.atomic.AtomicReference;
 public abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase {
   @SuppressWarnings("AbstractMethodCallInConstructor") private CompilerTester myCompilerTester;
 
-  protected abstract boolean useJps();
-
   @Override
   protected void setUp() throws Exception {
     super.setUp();
     getProject().getComponent(GroovyCompilerLoader.class).projectOpened();
-    myCompilerTester = new CompilerTester(useJps(), myModule);
+    myCompilerTester = new CompilerTester(myModule);
   }
 
   @Override
@@ -80,25 +82,39 @@ public abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestC
     super.tuneFixture(moduleBuilder);
   }
 
+  @Override
+  protected void runTest() throws Throwable {
+    if (PlatformTestUtil.COVERAGE_ENABLED_BUILD) return;
+
+    super.runTest();
+  }
+
   protected static void addGroovyLibrary(final Module to) {
-    File jar = GroovyUtils.getBundledGroovyJar();
+    File jar = GroovyFacetUtil.getBundledGroovyJar();
     PsiTestUtil.addLibrary(to, "groovy", jar.getParent(), jar.getName());
   }
 
   @Override
   protected void tearDown() throws Exception {
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          myCompilerTester.tearDown();
-          GroovyCompilerTestCase.super.tearDown();
+    final File systemRoot = BuildManager.getInstance().getBuildSystemDirectory();
+    try {
+      UIUtil.invokeAndWaitIfNeeded(new Runnable() {
+        @Override
+        public void run() {
+          try {
+            myCompilerTester.tearDown();
+            myCompilerTester = null;
+            GroovyCompilerTestCase.super.tearDown();
+          }
+          catch (Exception e) {
+            throw new RuntimeException(e);
+          }
         }
-        catch (Exception e) {
-          throw new RuntimeException(e);
-        }
-      }
-    });
+      });
+    }
+    finally {
+      FileUtil.delete(systemRoot);
+    }
   }
 
   protected void setupTestSources() {
@@ -219,7 +235,7 @@ public abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestC
                                           ProgramRunner runner,
                                           RunProfile configuration) throws ExecutionException {
     final Executor executor = Executor.EXECUTOR_EXTENSION_NAME.findExtension(executorClass);
-    final ExecutionEnvironment environment = new ExecutionEnvironment(configuration, executor, getProject(), null);
+    final ExecutionEnvironment environment = new ExecutionEnvironmentBuilder(getProject(), executor).runProfile(configuration).build();
     final Semaphore semaphore = new Semaphore();
     semaphore.down();
 
@@ -240,7 +256,9 @@ public abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestC
         semaphore.up();
       }
     });
-    semaphore.waitFor();
+    if (!semaphore.waitFor(20000)) {
+      fail("Process took too long");
+    }
     return processHandler.get();
   }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2010 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,12 @@
 package com.intellij.codeInsight.completion;
 
 import com.intellij.lang.Language;
+import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.SelectionModel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiUtilBase;
+import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -40,23 +41,28 @@ public class CompletionInitializationContext {
   private final Editor myEditor;
   private final PsiFile myFile;
   private final CompletionType myCompletionType;
+  private final int myInvocationCount;
   private final OffsetMap myOffsetMap;
   private String myDummyIdentifier = DUMMY_IDENTIFIER;
 
-  public CompletionInitializationContext(final Editor editor, final PsiFile file, final CompletionType completionType) {
+  public CompletionInitializationContext(final Editor editor, final Caret caret, final PsiFile file, final CompletionType completionType, int invocationCount) {
     myEditor = editor;
     myFile = file;
     myCompletionType = completionType;
+    myInvocationCount = invocationCount;
     myOffsetMap = new OffsetMap(editor.getDocument());
 
-    final int caretOffset = editor.getCaretModel().getOffset();
-    final SelectionModel selectionModel = editor.getSelectionModel();
-    myOffsetMap.addOffset(START_OFFSET, selectionModel.hasSelection() ? selectionModel.getSelectionStart() : caretOffset);
+    myOffsetMap.addOffset(START_OFFSET, calcStartOffset(caret));
+    myOffsetMap.addOffset(SELECTION_END_OFFSET, calcSelectionEnd(caret));
+    myOffsetMap.addOffset(IDENTIFIER_END_OFFSET, calcDefaultIdentifierEnd(editor, calcSelectionEnd(caret)));
+  }
 
-    final int selectionEndOffset = selectionModel.hasSelection() ? selectionModel.getSelectionEnd() : caretOffset;
-    myOffsetMap.addOffset(SELECTION_END_OFFSET, selectionEndOffset);
+  private static int calcSelectionEnd(Caret caret) {
+    return caret.hasSelection() ? caret.getSelectionEnd() : caret.getOffset();
+  }
 
-    myOffsetMap.addOffset(IDENTIFIER_END_OFFSET, calcDefaultIdentifierEnd(editor, selectionEndOffset));
+  public static int calcStartOffset(Caret caret) {
+    return caret.hasSelection() ? caret.getSelectionStart() : caret.getOffset();
   }
 
   static int calcDefaultIdentifierEnd(Editor editor, int startFrom) {
@@ -74,7 +80,7 @@ public class CompletionInitializationContext {
 
   @NotNull
   public Language getPositionLanguage() {
-    return PsiUtilBase.getLanguageInEditor(getEditor(), getProject());
+    return ObjectUtils.assertNotNull(PsiUtilBase.getLanguageInEditor(getEditor(), getProject()));
   }
 
   public String getDummyIdentifier() {
@@ -122,9 +128,12 @@ public class CompletionInitializationContext {
     return getIdentifierEndOffset();
   }
 
+  public int getInvocationCount() {
+    return myInvocationCount;
+  }
+
   /**
    * Mark the offset up to which the text will be deleted if a completion variant is selected using Replace character (Tab)
-   * @param idEnd
    */
   public void setReplacementOffset(int idEnd) {
     myOffsetMap.addOffset(IDENTIFIER_END_OFFSET, idEnd);

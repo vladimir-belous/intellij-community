@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,10 +34,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.impl.LoadTextUtil;
 import com.intellij.openapi.fileTypes.FileTypes;
 import com.intellij.openapi.ui.Queryable;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.JDOMUtil;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
@@ -47,6 +44,7 @@ import com.intellij.openapi.vfs.VirtualFileFilter;
 import com.intellij.openapi.vfs.ex.temp.TempFileSystem;
 import com.intellij.util.Alarm;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ReflectionUtil;
 import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.HashMap;
@@ -54,6 +52,7 @@ import com.intellij.util.io.ZipUtil;
 import com.intellij.util.ui.UIUtil;
 import junit.framework.AssertionFailedError;
 import org.jdom.Element;
+import org.jdom.JDOMException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -65,11 +64,8 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.InvocationEvent;
-import java.io.File;
-import java.io.IOException;
-import java.io.StringWriter;
+import java.io.*;
 import java.lang.ref.SoftReference;
-import java.lang.reflect.Field;
 import java.nio.charset.Charset;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
@@ -87,7 +83,9 @@ import static org.junit.Assert.assertNotNull;
 @SuppressWarnings("UseOfSystemOutOrSystemErr")
 public class PlatformTestUtil {
   public static final boolean COVERAGE_ENABLED_BUILD = "true".equals(System.getProperty("idea.coverage.enabled.build"));
-  public static final byte[] EMPTY_JAR_BYTES = {0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,};
+
+  private static final boolean SKIP_HEADLESS = GraphicsEnvironment.isHeadless();
+  private static final boolean SKIP_SLOW = Boolean.getBoolean("skip.slow.tests.locally");
 
   public static <T> void registerExtension(final ExtensionPointName<T> name, final T t, final Disposable parentDisposable) {
     registerExtension(Extensions.getRootArea(), name, t, parentDisposable);
@@ -419,14 +417,21 @@ public class PlatformTestUtil {
   }
 
   public static boolean canRunTest(@NotNull Class testCaseClass) {
-    if (GraphicsEnvironment.isHeadless()) {
-      for (Class<?> clazz = testCaseClass; clazz != null; clazz = clazz.getSuperclass()) {
-        if (clazz.getAnnotation(SkipInHeadlessEnvironment.class) != null) {
-          System.out.println("Class '" + testCaseClass.getName() + "' is skipped because it requires working UI environment");
-          return false;
-        }
+    if (!SKIP_SLOW && !SKIP_HEADLESS) {
+      return true;
+    }
+
+    for (Class<?> clazz = testCaseClass; clazz != null; clazz = clazz.getSuperclass()) {
+      if (SKIP_HEADLESS && clazz.getAnnotation(SkipInHeadlessEnvironment.class) != null) {
+        System.out.println("Class '" + testCaseClass.getName() + "' is skipped because it requires working UI environment");
+        return false;
+      }
+      if (SKIP_SLOW && clazz.getAnnotation(SkipSlowTestLocally.class) != null) {
+        System.out.println("Class '" + testCaseClass.getName() + "' is skipped because it is dog slow");
+        return false;
       }
     }
+
     return true;
   }
 
@@ -434,6 +439,12 @@ public class PlatformTestUtil {
     if (expected != null) expected = FileUtil.toSystemIndependentName(expected);
     if (actual != null) actual = FileUtil.toSystemIndependentName(actual);
     assertEquals(expected, actual);
+  }
+
+  @NotNull
+  public static String getRtJarPath() {
+    String home = System.getProperty("java.home");
+    return SystemInfo.isAppleJvm ? FileUtil.toCanonicalPath(home + "/../Classes/classes.jar") : home + "/lib/rt.jar";
   }
 
   public static class TestInfo {
@@ -462,6 +473,7 @@ public class PlatformTestUtil {
     public void assertTiming() {
       assert expectedMs != 0 : "Must call .expect() before run test";
       if (COVERAGE_ENABLED_BUILD) return;
+      Timings.getStatistics(); // warm-up, measure
 
       while (true) {
         attempts--;
@@ -737,7 +749,19 @@ public class PlatformTestUtil {
 
   public static void assertElementsEqual(final Element expected, final Element actual) throws IOException {
     if (!JDOMUtil.areElementsEqual(expected, actual)) {
-      junit.framework.Assert.assertEquals(printElement(expected), printElement(actual));
+      assertEquals(printElement(expected), printElement(actual));
+    }
+  }
+
+  public static void assertElementEquals(final String expected, final Element actual) {
+    try {
+      assertElementsEqual(JDOMUtil.loadDocument(expected).getRootElement(), actual);
+    }
+    catch (IOException e) {
+      throw new AssertionError(e);
+    }
+    catch (JDOMException e) {
+      throw new AssertionError(e);
     }
   }
 
@@ -749,7 +773,7 @@ public class PlatformTestUtil {
 
   public static String getCommunityPath() {
     final String homePath = PathManager.getHomePath();
-    if (new File(homePath, "community").exists()) {
+    if (new File(homePath, "community/.idea").isDirectory()) {
       return homePath + File.separatorChar + "community";
     }
     return homePath;
@@ -810,9 +834,24 @@ public class PlatformTestUtil {
   }
 
   private static void patchSystemFileEncoding(String encoding) throws NoSuchFieldException, IllegalAccessException {
-    Field charset = Charset.class.getDeclaredField("defaultCharset");
-    charset.setAccessible(true);
-    charset.set(Charset.class, null);
+    ReflectionUtil.resetField(Charset.class, Charset.class, "defaultCharset");
     System.setProperty("file.encoding", encoding);
   }
+
+  public static void withStdErrSuppressed(@NotNull Runnable r) {
+    PrintStream std = System.err;
+    System.setErr(new PrintStream(NULL));
+    try {
+      r.run();
+    }
+    finally {
+      System.setErr(std);
+    }
+  }
+
+  @SuppressWarnings("IOResourceOpenedButNotSafelyClosed")
+  private static final OutputStream NULL = new OutputStream() {
+    @Override
+    public void write(int b) throws IOException { }
+  };
 }

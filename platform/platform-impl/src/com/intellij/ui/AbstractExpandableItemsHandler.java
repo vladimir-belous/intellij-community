@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +19,10 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.popup.AbstractPopup;
 import com.intellij.util.Alarm;
+import com.intellij.util.JBHiDPIScaledImage;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -52,6 +54,69 @@ public abstract class AbstractExpandableItemsHandler<KeyType, ComponentType exte
 
     myTipComponent = new TipComponent();
 
+    MouseAdapter tipMouseAdapter = new MouseAdapter() {
+      @Override
+      public void mouseExited(MouseEvent e) {
+        // don't hide the hint if mouse exited to myComponent
+        if (myComponent.getMousePosition() == null) {
+          hideHint();
+        }
+      }
+
+      @Override
+      public void mouseWheelMoved(MouseWheelEvent e) {
+        Point p = e.getLocationOnScreen();
+        SwingUtilities.convertPointFromScreen(p, myComponent);
+        myComponent.dispatchEvent(new MouseWheelEvent(myComponent,
+                                                        e.getID(),
+                                                        e.getWhen(),
+                                                        e.getModifiers(),
+                                                        p.x, p.y,
+                                                        e.getClickCount(),
+                                                        e.isPopupTrigger(),
+                                                        e.getScrollType(),
+                                                        e.getScrollAmount(),
+                                                        e.getWheelRotation()));
+      }
+
+      @Override
+      public void mouseClicked(MouseEvent e) {
+        Point p = e.getLocationOnScreen();
+        SwingUtilities.convertPointFromScreen(p, myComponent);
+        myComponent.dispatchEvent(new MouseEvent(myComponent,
+                                                      e.getID(),
+                                                      e.getWhen(),
+                                                      e.getModifiers(),
+                                                      p.x, p.y,
+                                                      e.getClickCount(),
+                                                      e.isPopupTrigger(),
+                                                      e.getButton()));
+      }
+
+      @Override
+      public void mousePressed(MouseEvent e) {
+        mouseClicked(e);
+      }
+
+      @Override
+      public void mouseReleased(MouseEvent e) {
+        mouseClicked(e);
+      }
+
+      @Override
+      public void mouseMoved(MouseEvent e) {
+        mouseClicked(e);
+      }
+
+      @Override
+      public void mouseDragged(MouseEvent e) {
+        mouseClicked(e);
+      }
+    };
+    myTipComponent.addMouseListener(tipMouseAdapter);
+    myTipComponent.addMouseWheelListener(tipMouseAdapter);
+    myTipComponent.addMouseMotionListener(tipMouseAdapter);
+
     myComponent.addMouseListener(
       new MouseListener() {
         @Override
@@ -61,7 +126,10 @@ public abstract class AbstractExpandableItemsHandler<KeyType, ComponentType exte
 
         @Override
         public void mouseExited(MouseEvent e) {
-          hideHint();
+          // don't hide the hint if mouse exited to it
+          if (myTipComponent.getMousePosition() == null) {
+            hideHint();
+          }
         }
 
         @Override
@@ -206,8 +274,10 @@ public abstract class AbstractExpandableItemsHandler<KeyType, ComponentType exte
     if (!myEnabled) return;
 
     if (selected == null
+        || !myComponent.isEnabled()
         || !myComponent.isShowing()
-        || (!myComponent.isFocusOwner() && !processIfUnfocused)
+        || !myComponent.getVisibleRect().intersects(getVisibleRect(selected))
+        || !myComponent.isFocusOwner() && !processIfUnfocused
         || isPopup()) {
       hideHint();
       return;
@@ -269,28 +339,15 @@ public abstract class AbstractExpandableItemsHandler<KeyType, ComponentType exte
       return;
     }
 
-    JLayeredPane layeredPane = myComponent.getRootPane().getLayeredPane();
-    Point layeredPanePoint = SwingUtilities.convertPoint(myComponent, location.x + myTipComponent.getPreferredSize().width, 0, layeredPane);
-    boolean fitIntoLayeredPane = layeredPanePoint.x < layeredPane.getWidth();
-
-    if (fitIntoLayeredPane) {
-      myHint = new LightweightHint(myTipComponent);
-    }
-    else {
-      MenuElement[] selectedPath = MenuSelectionManager.defaultManager().getSelectedPath();
-      if (selectedPath.length > 0) {
-        // do not show heavyweight hints when menu is shown to avoid their overlapping
-        return;
-      }
-      myHint = new HeavyweightHint(myTipComponent, false);
-    }
+    myHint = new ExpansionHint(myTipComponent);
     myHint.show(myComponent, location.x, location.y, myComponent, new HintHint(myComponent, location));
+
     repaintKeyItem();
   }
 
   private void repaintHint(Point location) {
     if (myHint != null && myKey != null && myComponent.isShowing()) {
-      myHint.updateBounds(location.x, location.y);
+      myHint.setLocation(new RelativePoint(myComponent, location));
       myTipComponent.repaint();
       repaintKeyItem();
     }
@@ -311,6 +368,7 @@ public abstract class AbstractExpandableItemsHandler<KeyType, ComponentType exte
     if (!(renderer instanceof JComponent)) return null;
 
     myKeyItemBounds = rendererAndBounds.second;
+    myKeyItemBounds.width = Math.min(myKeyItemBounds.width, myComponent.getToolkit().getScreenSize().width);
 
     Rectangle cellBounds = myKeyItemBounds;
     Rectangle visibleRect = getVisibleRect(key);
@@ -329,14 +387,13 @@ public abstract class AbstractExpandableItemsHandler<KeyType, ComponentType exte
     g.setClip(null);
     doFillBackground(height, width, g);
     g.translate(-(visibleRect.x + visibleRect.width - cellBounds.x), 0);
-    doPaintTooltipImage(renderer, cellBounds, height, g, key);
-
+    doPaintTooltipImage(renderer, cellBounds, g, key);
 
     if (isPaintBorder()) {
-      g.translate((visibleRect.x + visibleRect.width - cellBounds.x), 0);
+      g.translate(visibleRect.x + visibleRect.width - cellBounds.x, 0);
       g.setColor(getBorderColor());
       int rightX = size.width - 1;
-      final int h = size.height;
+      int h = size.height;
       UIUtil.drawLine(g, 0, 0, rightX, 0);
       UIUtil.drawLine(g, rightX, 0, rightX, h - 1);
       UIUtil.drawLine(g, 0, h - 1, rightX, h - 1);
@@ -353,7 +410,7 @@ public abstract class AbstractExpandableItemsHandler<KeyType, ComponentType exte
   }
 
   protected Color getBorderColor() {
-    return Color.GRAY;
+    return UIUtil.getListSelectionBackground();
   }
 
   protected Dimension getImageSize(final int width, final int height) {
@@ -365,8 +422,8 @@ public abstract class AbstractExpandableItemsHandler<KeyType, ComponentType exte
     g.fillRect(0, 0, width, height);
   }
 
-  protected void doPaintTooltipImage(Component rComponent, Rectangle cellBounds, int height, Graphics2D g, KeyType key) {
-    myRendererPane.paintComponent(g, rComponent, myComponent, 0, 0, cellBounds.width, height, true);
+  protected void doPaintTooltipImage(Component rComponent, Rectangle cellBounds, Graphics2D g, KeyType key) {
+    myRendererPane.paintComponent(g, rComponent, myComponent, 0, 0, cellBounds.width, cellBounds.height, true);
   }
 
   protected Rectangle getVisibleRect(KeyType key) {
@@ -391,7 +448,14 @@ public abstract class AbstractExpandableItemsHandler<KeyType, ComponentType exte
 
     @Override
     public Dimension getPreferredSize() {
-      return new Dimension(myImage.getWidth(), myImage.getHeight());
+      int w =  myImage.getWidth();
+      int h = myImage.getHeight();
+
+      if (myImage instanceof JBHiDPIScaledImage) {
+        w /= 2; h /= 2;
+      }
+
+      return new Dimension(w, h);
     }
 
     @Override

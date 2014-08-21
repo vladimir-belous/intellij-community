@@ -15,6 +15,11 @@
  */
 package org.jetbrains.idea.svn;
 
+import com.intellij.openapi.vcs.VcsException;
+import com.intellij.util.Processor;
+import org.tmatesoft.sqljet.core.SqlJetErrorCode;
+import org.tmatesoft.sqljet.core.SqlJetException;
+import org.tmatesoft.svn.core.SVNErrorCode;
 import org.tmatesoft.svn.core.SVNException;
 
 /**
@@ -25,23 +30,47 @@ import org.tmatesoft.svn.core.SVNException;
  */
 public abstract class RepeatSvnActionThroughBusy {
   public static final int REPEAT = 10;
+
+  public static final Processor<Exception> ourBusyExceptionProcessor = new Processor<Exception>() {
+    @SuppressWarnings("ThrowableResultOfMethodCallIgnored")
+    @Override
+    public boolean process(Exception e) {
+      if (e instanceof SVNException) {
+        final SVNErrorCode errorCode = ((SVNException)e).getErrorMessage().getErrorCode();
+        if (SVNErrorCode.WC_LOCKED.equals(errorCode)) {
+          return true;
+        }
+        else if (SVNErrorCode.SQLITE_ERROR.equals(errorCode)) {
+          Throwable cause = ((SVNException)e).getErrorMessage().getCause();
+          if (cause instanceof SqlJetException) {
+            return SqlJetErrorCode.BUSY.equals(((SqlJetException)cause).getErrorCode());
+          }
+        }
+      }
+      return false;
+    }
+  };
+
   protected int myCnt = REPEAT;
   protected long myTimeout = 50;
-  protected abstract void executeImpl() throws SVNException;
+
+  protected abstract void executeImpl() throws VcsException;
+
   protected Object myT;
 
-  public <T> T compute() throws SVNException {
+  public <T> T compute() throws VcsException {
     execute();
     return (T) myT;
   }
 
-  public void execute() throws SVNException {
+  public void execute() throws VcsException {
     while (true) {
       try {
         executeImpl();
         break;
-      } catch (SVNException e) {
-        if (SvnVcs.ourBusyExceptionProcessor.process(e)) {
+      }
+      catch (VcsException e) {
+        if (ourBusyExceptionProcessor.process(e)) {
           if (myCnt > 0) {
             try {
               Thread.sleep(myTimeout * (REPEAT - myCnt + 1));

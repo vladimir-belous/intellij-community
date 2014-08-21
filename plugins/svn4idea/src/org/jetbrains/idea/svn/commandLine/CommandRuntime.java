@@ -17,15 +17,15 @@ package org.jetbrains.idea.svn.commandLine;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.idea.svn.SvnApplicationSettings;
-import org.jetbrains.idea.svn.SvnProgressCanceller;
-import org.jetbrains.idea.svn.SvnUtil;
-import org.jetbrains.idea.svn.SvnVcs;
+import org.jetbrains.idea.svn.*;
+import org.jetbrains.idea.svn.auth.AuthenticationService;
+import org.jetbrains.idea.svn.auth.SvnAuthenticationManager;
 import org.tmatesoft.svn.core.SVNURL;
 
 import java.io.File;
@@ -38,14 +38,14 @@ public class CommandRuntime {
 
   private static final Logger LOG = Logger.getInstance(CommandRuntime.class);
 
-  @NotNull private final AuthenticationCallback myAuthCallback;
+  @NotNull private final AuthenticationService myAuthenticationService;
   @NotNull private final SvnVcs myVcs;
   @NotNull private final List<CommandRuntimeModule> myModules;
   private final String exePath;
 
-  public CommandRuntime(@NotNull SvnVcs vcs, @NotNull AuthenticationCallback authCallback) {
+  public CommandRuntime(@NotNull SvnVcs vcs, @NotNull AuthenticationService authenticationService) {
     myVcs = vcs;
-    myAuthCallback = authCallback;
+    myAuthenticationService = authenticationService;
     exePath = SvnApplicationSettings.getInstance().getCommandLinePath();
 
     myModules = ContainerUtil.newArrayList();
@@ -131,8 +131,8 @@ public class CommandRuntime {
     // "infinite" times despite it was cancelled.
     if (!executor.checkCancelled() && callback != null) {
       if (callback.getCredentials(errText)) {
-        if (myAuthCallback.getSpecialConfigDir() != null) {
-          command.setConfigDir(myAuthCallback.getSpecialConfigDir());
+        if (myAuthenticationService.getSpecialConfigDir() != null) {
+          command.setConfigDir(myAuthenticationService.getSpecialConfigDir());
         }
         callback.updateParameters(command);
         return true;
@@ -154,7 +154,7 @@ public class CommandRuntime {
   }
 
   private void onFinish() {
-    myAuthCallback.reset();
+    myAuthenticationService.reset();
   }
 
   private static void logNullExitCode(@NotNull CommandExecutor executor, @Nullable Integer exitCode) {
@@ -167,12 +167,12 @@ public class CommandRuntime {
   private AuthCallbackCase createCallback(@NotNull final String errText, @Nullable final SVNURL url) {
     List<AuthCallbackCase> authCases = ContainerUtil.newArrayList();
 
-    authCases.add(new CertificateCallbackCase(myAuthCallback, url));
-    authCases.add(new CredentialsCallback(myAuthCallback, url));
-    authCases.add(new PassphraseCallback(myAuthCallback, url));
-    authCases.add(new ProxyCallback(myAuthCallback, url));
-    authCases.add(new TwoWaySslCallback(myAuthCallback, url));
-    authCases.add(new UsernamePasswordCallback(myAuthCallback, url));
+    authCases.add(new CertificateCallbackCase(myAuthenticationService, url));
+    authCases.add(new CredentialsCallback(myAuthenticationService, url));
+    authCases.add(new PassphraseCallback(myAuthenticationService, url));
+    authCases.add(new ProxyCallback(myAuthenticationService, url));
+    authCases.add(new TwoWaySslCallback(myAuthenticationService, url));
+    authCases.add(new UsernamePasswordCallback(myAuthenticationService, url));
 
     return ContainerUtil.find(authCases, new Condition<AuthCallbackCase>() {
       @Override
@@ -204,13 +204,14 @@ public class CommandRuntime {
   private CommandExecutor newExecutor(@NotNull Command command) {
     final CommandExecutor executor;
 
-    if (!Registry.is("svn.use.terminal")) {
+    if (!(Registry.is("svn.use.terminal") && isForSshRepository(command)) || isLocal(command)) {
       command.putIfNotPresent("--non-interactive");
       executor = new CommandExecutor(exePath, command);
     }
     else {
-      command.put("--force-interactive");
-      executor = new TerminalExecutor(exePath, command);
+      // do not explicitly specify "--force-interactive" as it is not supported in svn 1.7 - commands will be interactive by default as
+      // running under terminal
+      executor = newTerminalExecutor(command);
       ((TerminalExecutor)executor).addInteractiveListener(new TerminalSshModule(this, executor));
     }
 
@@ -218,8 +219,32 @@ public class CommandRuntime {
   }
 
   @NotNull
-  public AuthenticationCallback getAuthCallback() {
-    return myAuthCallback;
+  private TerminalExecutor newTerminalExecutor(@NotNull Command command) {
+    return SystemInfo.isWindows ? new WinTerminalExecutor(exePath, command) : new TerminalExecutor(exePath, command);
+  }
+
+  private static boolean isLocal(@NotNull Command command) {
+    return SvnCommandName.version.equals(command.getName()) ||
+           SvnCommandName.cleanup.equals(command.getName()) ||
+           SvnCommandName.add.equals(command.getName()) ||
+           // currently "svn delete" is only applied to local files
+           SvnCommandName.delete.equals(command.getName()) ||
+           SvnCommandName.revert.equals(command.getName()) ||
+           SvnCommandName.resolve.equals(command.getName()) ||
+           SvnCommandName.upgrade.equals(command.getName()) ||
+           SvnCommandName.changelist.equals(command.getName()) ||
+           command.isLocalInfo() || command.isLocalStatus() || command.isLocalProperty() || command.isLocalCat();
+  }
+
+  private static boolean isForSshRepository(@NotNull Command command) {
+    SVNURL url = command.getRepositoryUrl();
+
+    return url != null && StringUtil.equalsIgnoreCase(SvnAuthenticationManager.SVN_SSH, url.getProtocol());
+  }
+
+  @NotNull
+  public AuthenticationService getAuthenticationService() {
+    return myAuthenticationService;
   }
 
   @NotNull

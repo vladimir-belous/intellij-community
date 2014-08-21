@@ -161,7 +161,7 @@ public class PythonCompletionTest extends PyTestCase {
     final LookupElement[] elements = myFixture.completeBasic();
     assertNotNull(elements);
     assertEquals(1, elements.length);
-    assertEquals("children", elements [0].getLookupString());
+    assertEquals("children", elements[0].getLookupString());
   }
 
   public void testImportModule() {
@@ -605,5 +605,106 @@ public class PythonCompletionTest extends PyTestCase {
     myFixture.finishLookup(Lookup.REPLACE_SELECT_CHAR);
     myFixture.checkResult("bar = {'a': '1'}\n" +
                           "print bar<caret>['a']");
+  }
+
+  // PY-1860
+  public void testDunderMetaClass() {
+    doTestByText("class C(object):\n" +
+                 "    __meta<caret>\n");
+    myFixture.checkResult("class C(object):\n" +
+                          "    __metaclass__ = \n");
+  }
+
+  // PY-13140
+  public void testModulePrivateNamesCompletedInsideImport() {
+    myFixture.copyDirectoryToProject("completion/" + getTestName(true), "");
+    myFixture.configureByFile("a.py");
+    myFixture.completeBasic();
+    List<String> suggested = myFixture.getLookupElementStrings();
+    assertNotNull(suggested);
+    assertContainsElements(suggested, "normal_name", "_private_name", "__magic_name__");
+  }
+
+  // PY-4073
+  public void testFunctionSpecialAttributes() {
+    runWithLanguageLevel(LanguageLevel.PYTHON27, new Runnable() {
+      @Override
+      public void run() {
+        List<String> suggested = doTestByText("def func(): pass; func.func_<caret>");
+        assertNotNull(suggested);
+        assertContainsElements(suggested, PyNames.LEGACY_FUNCTION_SPECIAL_ATTRIBUTES);
+
+        suggested = doTestByText("def func(): pass; func.__<caret>");
+        assertNotNull(suggested);
+        assertContainsElements(suggested, PyNames.FUNCTION_SPECIAL_ATTRIBUTES);
+        assertDoesntContain(suggested, PyNames.PY3_ONLY_FUNCTION_SPECIAL_ATTRIBUTES);
+      }
+    });
+  }
+
+  // PY-9342
+  public void testBoundMethodSpecialAttributes() {
+    List<String>  suggested = doTestByText("{}.update.im_<caret>");
+    assertNotNull(suggested);
+    assertContainsElements(suggested, PyNames.LEGACY_METHOD_SPECIAL_ATTRIBUTES);
+
+    suggested = doTestByText("{}.update.__<caret>");
+    assertNotNull(suggested);
+    assertContainsElements(suggested, PyNames.METHOD_SPECIAL_ATTRIBUTES);
+    assertDoesntContain(suggested, PyNames.FUNCTION_SPECIAL_ATTRIBUTES);
+  }
+
+  // PY-9342
+  public void testWeakQualifierBoundMethodAttributes() {
+    assertUnderscoredMethodSpecialAttributesSuggested();
+  }
+
+  private void assertUnderscoredMethodSpecialAttributesSuggested() {
+    myFixture.configureByFile("completion/" + getTestName(true) + ".py");
+    myFixture.completeBasic();
+    final List<String> suggested = myFixture.getLookupElementStrings();
+    assertNotNull(suggested);
+    assertContainsElements(suggested, PyNames.METHOD_SPECIAL_ATTRIBUTES);
+    assertDoesntContain(suggested, PyNames.FUNCTION_SPECIAL_ATTRIBUTES);
+  }
+
+  // PY-9342
+  public void testUnboundMethodSpecialAttributes() {
+    runWithLanguageLevel(LanguageLevel.PYTHON27, new Runnable() {
+      @Override
+      public void run() {
+        assertUnderscoredMethodSpecialAttributesSuggested();
+      }
+    });
+    runWithLanguageLevel(LanguageLevel.PYTHON32, new Runnable() {
+      @Override
+      public void run() {
+        assertUnderscoredFunctionAttributesSuggested();
+      }
+    });
+  }
+
+  // PY-9342
+  public void testStaticMethodSpecialAttributes() {
+    assertUnderscoredFunctionAttributesSuggested();
+  }
+
+  // PY-9342
+  public void testLambdaSpecialAttributes() {
+    assertUnderscoredFunctionAttributesSuggested();
+  }
+
+  // PY-9342
+  public void testReassignedMethodSpecialAttributes() {
+    assertUnderscoredMethodSpecialAttributesSuggested();
+  }
+
+  private void assertUnderscoredFunctionAttributesSuggested() {
+    myFixture.configureByFile("completion/" + getTestName(true) + ".py");
+    myFixture.completeBasic();
+    final List<String> suggested = myFixture.getLookupElementStrings();
+    assertNotNull(suggested);
+    assertContainsElements(suggested, PyNames.FUNCTION_SPECIAL_ATTRIBUTES);
+    assertDoesntContain(suggested, PyNames.METHOD_SPECIAL_ATTRIBUTES);
   }
 }

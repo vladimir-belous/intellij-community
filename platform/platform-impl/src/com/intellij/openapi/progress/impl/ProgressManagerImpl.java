@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,10 +17,10 @@ package com.intellij.openapi.progress.impl;
 
 import com.intellij.concurrency.JobScheduler;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ex.ApplicationEx;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.*;
 import com.intellij.openapi.progress.util.ProgressWindow;
 import com.intellij.openapi.progress.util.SmoothProgressAdapter;
@@ -37,18 +37,17 @@ import com.intellij.ui.SystemNotifications;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
 import java.awt.*;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class ProgressManagerImpl extends ProgressManager implements Disposable{
+public class ProgressManagerImpl extends ProgressManager implements Disposable {
+  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.progress.impl.ProgressManagerImpl");
+  public static final int CHECK_CANCELED_DELAY_MILLIS = 10;
   private final AtomicInteger myCurrentUnsafeProgressCount = new AtomicInteger(0);
   private final AtomicInteger myCurrentModalProgressCount = new AtomicInteger(0);
 
@@ -56,18 +55,17 @@ public class ProgressManagerImpl extends ProgressManager implements Disposable{
   private static final boolean DISABLED = "disabled".equals(System.getProperty("idea.ProcessCanceledException"));
   private final ScheduledFuture<?> myCheckCancelledFuture;
 
-  public ProgressManagerImpl(Application application) {
-    if (/*!application.isUnitTestMode() && */!DISABLED) {
+  public ProgressManagerImpl() {
+    if (DISABLED) {
+      myCheckCancelledFuture = null;
+    }
+    else {
       myCheckCancelledFuture = JobScheduler.getScheduler().scheduleWithFixedDelay(new Runnable() {
         @Override
         public void run() {
           ourNeedToCheckCancel = true;
-          ProgressIndicatorProvider.ourNeedToCheckCancel = true;
         }
-      }, 0, 10, TimeUnit.MILLISECONDS);
-    }
-    else {
-      myCheckCancelledFuture = null;
+      }, 0, CHECK_CANCELED_DELAY_MILLIS, TimeUnit.MILLISECONDS);
     }
   }
 
@@ -86,8 +84,7 @@ public class ProgressManagerImpl extends ProgressManager implements Disposable{
           ourLockedCheckCounter++;
           if (ourLockedCheckCounter > 10) {
             ourLockedCheckCounter = 0;
-            ourNeedToCheckCancel = true;
-            ProgressIndicatorProvider.ourNeedToCheckCancel = true;
+            canceled();
           }
         }
         else {
@@ -98,16 +95,11 @@ public class ProgressManagerImpl extends ProgressManager implements Disposable{
     }
   }
 
-  public static void canceled() {
-    ourNeedToCheckCancel = true;
-    ProgressIndicatorProvider.ourNeedToCheckCancel = true;
-  }
-
   private static class NonCancelableIndicator extends EmptyProgressIndicator implements NonCancelableSection {
     private final ProgressIndicator myOld;
 
-    private NonCancelableIndicator(ProgressIndicator old) {
-      myOld = old;
+    private NonCancelableIndicator() {
+      myOld = myThreadIndicator.get();
     }
 
     @Override
@@ -125,16 +117,17 @@ public class ProgressManagerImpl extends ProgressManager implements Disposable{
     }
   }
 
+  @NotNull
   @Override
   public final NonCancelableSection startNonCancelableSection() {
-    NonCancelableIndicator nonCancelor = new NonCancelableIndicator(myThreadIndicator.get());
+    NonCancelableIndicator nonCancelor = new NonCancelableIndicator();
     myThreadIndicator.set(nonCancelor);
     return nonCancelor;
   }
 
   @Override
   public void executeNonCancelableSection(@NotNull Runnable runnable) {
-    executeProcessUnderProgress(runnable, new NonCancelableIndicator(getProgressIndicator()));
+    executeProcessUnderProgress(runnable, new NonCancelableIndicator());
   }
 
   @Override
@@ -172,8 +165,14 @@ public class ProgressManagerImpl extends ProgressManager implements Disposable{
       @Override
       public void run() {
         try {
-          if (progress != null && !progress.isRunning()) {
-            progress.start();
+          try {
+            if (progress != null && !progress.isRunning()) {
+              progress.start();
+            }
+          }
+          catch (Throwable e) {
+            LOG.info("Unexpected error when starting progress: ", e);
+            throw new RuntimeException(e);
           }
           process.run();
           maybeSleep();
@@ -227,26 +226,33 @@ public class ProgressManagerImpl extends ProgressManager implements Disposable{
 
   @Override
   public <T, E extends Exception> T runProcessWithProgressSynchronously(@NotNull final ThrowableComputable<T, E> process,
-                                                   @NotNull @Nls String progressTitle,
-                                                   boolean canBeCanceled,
-                                                   @Nullable Project project) throws E {
-
+                                                                        @NotNull @Nls String progressTitle,
+                                                                        boolean canBeCanceled,
+                                                                        @Nullable Project project) throws E {
     final Ref<T> result = new Ref<T>();
-    final Ref<E> exceptionRef = new Ref<E>();
-    Task.Modal task = new Task.Modal(project, progressTitle, canBeCanceled) {
+    final Ref<Throwable> exception = new Ref<Throwable>();
+
+    runProcessWithProgressSynchronously(new Task.Modal(project, progressTitle, canBeCanceled) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
         try {
           T compute = process.compute();
           result.set(compute);
         }
-        catch (Exception e) {
-          exceptionRef.set((E)e);
+        catch (Throwable t) {
+          exception.set(t);
         }
       }
-    };
-    runProcessWithProgressSynchronously(task, null);
-    if (!exceptionRef.isNull()) throw exceptionRef.get();
+    }, null);
+
+    if (!exception.isNull()) {
+      Throwable t = exception.get();
+      if (t instanceof Error) throw (Error)t;
+      if (t instanceof RuntimeException) throw (RuntimeException)t;
+      @SuppressWarnings("unchecked") E e = (E)t;
+      throw e;
+    }
+
     return result.get();
   }
 
@@ -280,7 +286,7 @@ public class ProgressManagerImpl extends ProgressManager implements Disposable{
       long time = end - start;
       if (notificationInfo != null && time > 5000) { // show notification only if process took more than 5 secs
         final JFrame frame = WindowManager.getInstance().getFrame(task.getProject());
-        if (!frame.hasFocus()) {
+        if (frame != null && !frame.hasFocus()) {
           systemNotify(notificationInfo);
         }
       }
@@ -338,7 +344,7 @@ public class ProgressManagerImpl extends ProgressManager implements Disposable{
     });
   }
 
-  private static void runProcessWithProgressAsynchronously(@NotNull Task.Backgroundable task) {
+  public static void runProcessWithProgressAsynchronously(@NotNull Task.Backgroundable task) {
     final ProgressIndicator progressIndicator;
     if (ApplicationManager.getApplication().isHeadlessEnvironment()) {
       progressIndicator = new EmptyProgressIndicator();
@@ -358,6 +364,14 @@ public class ProgressManagerImpl extends ProgressManager implements Disposable{
   public static Future<?> runProcessWithProgressAsynchronously(@NotNull final Task.Backgroundable task,
                                                                @NotNull final ProgressIndicator progressIndicator,
                                                                @Nullable final Runnable continuation) {
+    return runProcessWithProgressAsynchronously(task, progressIndicator, continuation, ModalityState.NON_MODAL);
+  }
+
+  @NotNull
+  public static Future<?> runProcessWithProgressAsynchronously(@NotNull final Task.Backgroundable task,
+                                                               @NotNull final ProgressIndicator progressIndicator,
+                                                               @Nullable final Runnable continuation,
+                                                               @NotNull final ModalityState modalityState) {
     if (progressIndicator instanceof Disposable) {
       Disposer.register(ApplicationManager.getApplication(), (Disposable)progressIndicator);
     }
@@ -384,7 +398,7 @@ public class ProgressManagerImpl extends ProgressManager implements Disposable{
             public void run() {
               task.onCancel();
             }
-          }, ModalityState.NON_MODAL);
+          }, modalityState);
         }
         else {
           final Task.NotificationInfo notificationInfo = task.notifyFinished();
@@ -399,7 +413,7 @@ public class ProgressManagerImpl extends ProgressManager implements Disposable{
             public void run() {
               task.onSuccess();
             }
-          }, ModalityState.NON_MODAL);
+          }, modalityState);
         }
       }
     };
@@ -480,34 +494,7 @@ public class ProgressManagerImpl extends ProgressManager implements Disposable{
 
   @Override
   public void dispose() {
-    stopCheckCanceled();
-  }
-
-  private void stopCheckCanceled() {
     if (myCheckCancelledFuture != null) myCheckCancelledFuture.cancel(false);
-  }
-
-  @TestOnly
-  @SuppressWarnings({"UnusedDeclaration"})
-  public static String isCanceledThread(@NotNull Thread thread) {
-    try {
-      Field th = Thread.class.getDeclaredField("threadLocals");
-      th.setAccessible(true);
-      Object tLocalMap = th.get(thread);
-      if (tLocalMap == null) return null;
-      Method getEntry = tLocalMap.getClass().getDeclaredMethod("getEntry", ThreadLocal.class);
-      getEntry.setAccessible(true);
-      Object entry = getEntry.invoke(tLocalMap, myThreadIndicator);
-      if (entry == null) return null;
-      Field value = entry.getClass().getDeclaredField("value");
-      value.setAccessible(true);
-      ProgressIndicator indicator = (ProgressIndicator)value.get(entry);
-      if (indicator ==null) return null;
-      return String.valueOf(indicator.isCanceled());
-    }
-    catch (Exception e) {
-      throw new RuntimeException(e);
-    }
   }
 
   private static void maybeSleep() {

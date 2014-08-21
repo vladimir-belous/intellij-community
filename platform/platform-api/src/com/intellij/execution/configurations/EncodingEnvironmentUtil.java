@@ -27,6 +27,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.charset.Charset;
+import java.util.Locale;
 import java.util.Map;
 
 public class EncodingEnvironmentUtil {
@@ -40,28 +41,77 @@ public class EncodingEnvironmentUtil {
    * Sets default encoding on Mac if it's undefined. <br/>
    * On Mac default character encoding is defined by several environment variables: LC_ALL, LC_CTYPE and LANG.
    * See <a href='http://www.gnu.org/software/gettext/manual/html_node/Locale-Environment-Variables.html'>details</a>.
-   * <p>
+   * <p/>
    * Unfortunately, Mac OSX has a special behavior:<br/>
    * These environment variables aren't passed to an IDE, if the IDE is launched from Spotlight.<br/>
    * Unfortunately, even {@link com.intellij.util.EnvironmentUtil#getEnvironment()} doesn't have these variables.<p/>
    * As a result, no encoding environment variables are passed to Ruby/Node.js/Python/other processes that are launched from IDE.
    * Thus, these processes wrongly assume that the default encoding is US-ASCII.
    * <p/>
-   *
+   * <p/>
    * The workaround this method applies is to set LC_CTYPE environment variable if LC_ALL, LC_CTYPE or LANG aren't set before. <br/>
    * LC_CTYPE value is taken from "Settings | File Encodings".
    *
    * @param commandLine GeneralCommandLine instance
-   * @param project Project instance if any
    */
+  public static void setLocaleEnvironmentIfMac(@NotNull GeneralCommandLine commandLine) {
+    if (SystemInfo.isMac) {
+      if (!isLocaleDefined(commandLine)) {
+        setLocaleEnvironment(commandLine.getEnvironment(), commandLine.getCharset());
+      }
+    }
+  }
+
+  /**
+   * @deprecated Use {@link #setLocaleEnvironmentIfMac(GeneralCommandLine)} instead. To be removed in IDEA 15.
+   */
+  @Deprecated
   public static void fixDefaultEncodingIfMac(@NotNull GeneralCommandLine commandLine, @Nullable Project project) {
     if (SystemInfo.isMac) {
       if (!isLocaleDefined(commandLine)) {
-        Charset charset = getCharset(project);
-        commandLine.getEnvironment().put(LC_CTYPE, charset.name());
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Fixed mac locale: " + charset.name());
-        }
+        setLocaleEnvironment(commandLine.getEnvironment(), getCharset(project));
+      }
+    }
+  }
+
+  private static void setLocaleEnvironment(@NotNull Map<String, String> env, @NotNull Charset charset) {
+    env.put(LC_CTYPE, formatLocaleValue(charset));
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Fixed mac locale: " + charset.name());
+    }
+  }
+
+  @NotNull
+  private static String formatLocaleValue(@NotNull Charset charset) {
+    Locale locale = Locale.getDefault();
+    String language = locale.getLanguage();
+    String country = locale.getCountry();
+    if (language.isEmpty() || country.isEmpty()) {
+      return "en_US." + charset.name();
+    }
+    return language + "_" + country + "." + charset.name();
+  }
+
+  /**
+   * Sets default encoding on Mac if it's undefined. <br/>
+   * @deprecated Use {@link #setLocaleEnvironmentIfMac(java.util.Map, java.nio.charset.Charset)} instead. To be removed in IDEA 15.
+   */
+  @Deprecated
+  public static void fixDefaultEncodingIfMac(@NotNull Map<String, String> env, @Nullable Project project) {
+    if (SystemInfo.isMac) {
+      if (!isLocaleDefined(env)) {
+        setLocaleEnvironment(env, getCharset(project));
+      }
+    }
+  }
+
+  /**
+   * Sets default encoding on Mac if it's undefined. <br/>
+   */
+  public static void setLocaleEnvironmentIfMac(@NotNull Map<String, String> env, @NotNull Charset charset) {
+    if (SystemInfo.isMac) {
+      if (!isLocaleDefined(env)) {
+        setLocaleEnvironment(env, charset);
       }
     }
   }
@@ -100,6 +150,4 @@ public class EncodingEnvironmentUtil {
     }
     return charset;
   }
-
-
 }

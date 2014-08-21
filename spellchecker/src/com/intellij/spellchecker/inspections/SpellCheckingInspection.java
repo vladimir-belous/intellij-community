@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,8 +39,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.Set;
 
-
-public class SpellCheckingInspection extends LocalInspectionTool implements BatchSuppressableTool {
+public class SpellCheckingInspection extends LocalInspectionTool {
   public static final String SPELL_CHECKING_INSPECTION_TOOL_NAME = "SpellCheckingInspection";
 
   @Override
@@ -61,12 +60,13 @@ public class SpellCheckingInspection extends LocalInspectionTool implements Batc
   @Override
   public SuppressQuickFix[] getBatchSuppressActions(@Nullable PsiElement element) {
     if (element != null) {
-      SpellcheckingStrategy strategy = getSpellcheckingStrategy(element, element.getLanguage());
+      final Language language = element.getLanguage();
+      SpellcheckingStrategy strategy = getSpellcheckingStrategy(element, language);
       if(strategy instanceof SuppressibleSpellcheckingStrategy) {
         return ((SuppressibleSpellcheckingStrategy)strategy).getSuppressActions(element, getShortName());
       }
     }
-    return SuppressQuickFix.EMPTY_ARRAY;
+    return super.getBatchSuppressActions(element);
   }
 
   private static SpellcheckingStrategy getSpellcheckingStrategy(@NotNull PsiElement element, @NotNull Language language) {
@@ -80,9 +80,12 @@ public class SpellCheckingInspection extends LocalInspectionTool implements Batc
 
   @Override
   public boolean isSuppressedFor(@NotNull PsiElement element) {
-    SpellcheckingStrategy strategy = getSpellcheckingStrategy(element, element.getLanguage());
-    return strategy instanceof SuppressibleSpellcheckingStrategy &&
-           ((SuppressibleSpellcheckingStrategy)strategy).isSuppressedFor(element, getShortName());
+    final Language language = element.getLanguage();
+    SpellcheckingStrategy strategy = getSpellcheckingStrategy(element, language);
+    if (strategy instanceof SuppressibleSpellcheckingStrategy) {
+      return ((SuppressibleSpellcheckingStrategy)strategy).isSuppressedFor(element, getShortName());
+    }
+    return super.isSuppressedFor(element);
   }
 
   @Override
@@ -157,14 +160,9 @@ public class SpellCheckingInspection extends LocalInspectionTool implements Batc
     tokenizer.tokenize(element, consumer);
   }
 
-
   private static void addBatchDescriptor(PsiElement element, int offset, @NotNull TextRange textRange, @NotNull ProblemsHolder holder) {
-    final SpellcheckingStrategy strategy = getSpellcheckingStrategy(element, element.getLanguage());
-
-    SpellCheckerQuickFix[] fixes = strategy != null
-                                   ? strategy.getBatchFixes(element, offset, textRange)
-                                   : SpellcheckingStrategy.getDefaultBatchFixes();
-    final ProblemDescriptor problemDescriptor = createProblemDescriptor(element, offset, textRange, holder, fixes, false);
+    SpellCheckerQuickFix[] fixes = SpellcheckingStrategy.getDefaultBatchFixes();
+    ProblemDescriptor problemDescriptor = createProblemDescriptor(element, offset, textRange, holder, fixes, false);
     holder.registerProblem(problemDescriptor);
   }
 
@@ -217,7 +215,6 @@ public class SpellCheckingInspection extends LocalInspectionTool implements Batc
     final JPanel panel = new JPanel(new BorderLayout());
     panel.add(verticalBox, BorderLayout.NORTH);
     return panel;
-
   }
 
   private static class MyTokenConsumer extends TokenConsumer implements Consumer<TextRange> {

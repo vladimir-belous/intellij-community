@@ -41,6 +41,7 @@ import com.jetbrains.python.psi.stubs.PyClassNameIndex;
 import com.jetbrains.python.psi.stubs.PyFunctionNameIndex;
 import com.jetbrains.python.psi.stubs.PyVariableNameIndex;
 import com.jetbrains.python.psi.types.PyModuleType;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
 
@@ -50,11 +51,11 @@ import java.util.Collection;
 public class PyClassNameCompletionContributor extends CompletionContributor {
 
   @Override
-  public void fillCompletionVariants(CompletionParameters parameters, CompletionResultSet result) {
+  public void fillCompletionVariants(@NotNull CompletionParameters parameters, @NotNull CompletionResultSet result) {
     if (parameters.isExtendedCompletion()) {
       final PsiElement element = parameters.getPosition();
       final PsiElement parent = element.getParent();
-      if (parent instanceof PyReferenceExpression && ((PyReferenceExpression)parent).getQualifier() != null) {
+      if (parent instanceof PyReferenceExpression && ((PyReferenceExpression)parent).isQualified()) {
         return;
       }
       if (parent instanceof PyStringLiteralExpression) {

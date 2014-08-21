@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,13 +29,13 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
+import com.intellij.openapi.fileTypes.FileTypeManager;
+import com.intellij.openapi.fileTypes.impl.FileTypeManagerImpl;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ex.ProjectManagerEx;
 import com.intellij.openapi.roots.ProjectRootManager;
-import com.intellij.openapi.roots.impl.DirectoryIndex;
-import com.intellij.openapi.roots.impl.DirectoryIndexImpl;
 import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Disposer;
@@ -115,7 +115,6 @@ class HeavyIdeaTestFixtureImpl extends BaseFixture implements HeavyIdeaTestFixtu
     for (ModuleFixtureBuilder moduleFixtureBuilder : myModuleFixtureBuilders) {
       moduleFixtureBuilder.getFixture().tearDown();
     }
-    ((DirectoryIndexImpl)DirectoryIndex.getInstance(getProject())).assertAncestorConsistent();
 
     UIUtil.invokeAndWaitIfNeeded(new Runnable() {
       @Override
@@ -140,6 +139,7 @@ class HeavyIdeaTestFixtureImpl extends BaseFixture implements HeavyIdeaTestFixtu
     myEditorListenerTracker.checkListenersLeak();
     myThreadTracker.checkLeak();
     LightPlatformTestCase.checkEditorsReleased();
+    PlatformTestCase.cleanupApplicationCaches(project);
     InjectedLanguageManagerImpl.checkInjectorsAreDisposed(project);
   }
 
@@ -148,9 +148,9 @@ class HeavyIdeaTestFixtureImpl extends BaseFixture implements HeavyIdeaTestFixtu
     new WriteCommandAction.Simple(null) {
       @Override
       protected void run() throws Throwable {
-        File projectFile = FileUtil.createTempFile(myName+"_", PROJECT_FILE_SUFFIX);
-        FileUtil.delete(projectFile);
-        myFilesToDelete.add(projectFile);
+        File tempDirectory = FileUtil.createTempDirectory(myName, "");
+        File projectFile = new File(tempDirectory, myName + PROJECT_FILE_SUFFIX);
+        myFilesToDelete.add(tempDirectory);
 
         LocalFileSystem.getInstance().refreshAndFindFileByIoFile(projectFile);
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
@@ -168,6 +168,7 @@ class HeavyIdeaTestFixtureImpl extends BaseFixture implements HeavyIdeaTestFixtu
 
         ProjectManagerEx.getInstanceEx().openTestProject(myProject);
         LightPlatformTestCase.clearUncommittedDocuments(myProject);
+        ((FileTypeManagerImpl)FileTypeManager.getInstance()).drainReDetectQueue();
       }
     }.execute().throwException();
   }
@@ -204,7 +205,7 @@ class HeavyIdeaTestFixtureImpl extends BaseFixture implements HeavyIdeaTestFixtu
         Editor editor = (Editor)getData(CommonDataKeys.EDITOR.getName());
         if (editor != null) {
           FileEditorManagerEx manager = FileEditorManagerEx.getInstanceEx(myProject);
-          return manager.getData(dataId, editor, manager.getSelectedFiles()[0]);
+          return manager.getData(dataId, editor, editor.getCaretModel().getCurrentCaret());
         }
         else if (LangDataKeys.IDE_VIEW.is(dataId)) {
           VirtualFile[] contentRoots = ProjectRootManager.getInstance(myProject).getContentRoots();
@@ -216,6 +217,7 @@ class HeavyIdeaTestFixtureImpl extends BaseFixture implements HeavyIdeaTestFixtu
 
               }
 
+              @NotNull
               @Override
               public PsiDirectory[] getDirectories() {
                 return new PsiDirectory[] {psiDirectory};
@@ -234,7 +236,7 @@ class HeavyIdeaTestFixtureImpl extends BaseFixture implements HeavyIdeaTestFixtu
   }
 
   @Override
-  public PsiFile addFileToProject(@NonNls String rootPath, @NonNls final String relativePath, @NonNls final String fileText) throws IOException {
+  public PsiFile addFileToProject(@NotNull @NonNls String rootPath, @NotNull @NonNls final String relativePath, @NotNull @NonNls final String fileText) throws IOException {
     final VirtualFile dir = VfsUtil.createDirectories(rootPath + "/" + PathUtil.getParentPath(relativePath));
 
     final VirtualFile[] virtualFile = new VirtualFile[1];
@@ -246,6 +248,7 @@ class HeavyIdeaTestFixtureImpl extends BaseFixture implements HeavyIdeaTestFixtu
       }
     }.execute();
     return ApplicationManager.getApplication().runReadAction(new Computable<PsiFile>() {
+            @Override
             public PsiFile compute() {
               return PsiManager.getInstance(getProject()).findFile(virtualFile[0]);
             }

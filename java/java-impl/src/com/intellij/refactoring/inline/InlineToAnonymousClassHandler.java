@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import com.intellij.patterns.ElementPattern;
 import com.intellij.patterns.PlatformPatterns;
 import com.intellij.psi.*;
 import com.intellij.psi.search.searches.ClassInheritorsSearch;
+import com.intellij.psi.search.searches.FunctionalExpressionSearch;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.TypeConversionUtil;
@@ -70,19 +71,27 @@ public class InlineToAnonymousClassHandler extends JavaInlineActionHandler {
   }
 
   private static boolean findClassInheritors(final PsiClass element) {
-    final Collection<PsiClass> inheritors = new ArrayList<PsiClass>();
+    final Collection<PsiElement> inheritors = new ArrayList<PsiElement>();
     if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(new Runnable(){
       @Override
       public void run() {
         ApplicationManager.getApplication().runReadAction(new Runnable() {
           @Override
           public void run() {
-            inheritors.addAll(ClassInheritorsSearch.search(element).findAll());
+            final PsiClass inheritor = ClassInheritorsSearch.search(element).findFirst();
+            if (inheritor != null) {
+              inheritors.add(inheritor);
+            } else {
+              final PsiFunctionalExpression functionalExpression = FunctionalExpressionSearch.search(element).findFirst();
+              if (functionalExpression != null) {
+                inheritors.add(functionalExpression);
+              }
+            }
           }
         });
       }
     }, "Searching for class \"" + element.getQualifiedName() + "\" inheritors ...", true, element.getProject())) return false;
-    return inheritors.size() == 0;
+    return inheritors.isEmpty();
   }
 
   @Override
@@ -115,7 +124,12 @@ public class InlineToAnonymousClassHandler extends JavaInlineActionHandler {
     if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(new Runnable(){
       @Override
       public void run() {
-        errorMessage.set(getCannotInlineMessage(psiClass));
+        ApplicationManager.getApplication().runReadAction(new Runnable() {
+          @Override
+          public void run() {
+            errorMessage.set(getCannotInlineMessage(psiClass));
+          }
+        });
       }
     }, "Check if inline is possible...", true, project)) return;
     if (errorMessage.get() != null) {

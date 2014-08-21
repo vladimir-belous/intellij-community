@@ -2,6 +2,7 @@ package com.intellij.openapi.fileEditor.impl;
 
 import com.intellij.codeHighlighting.BackgroundEditorHighlighter;
 import com.intellij.ide.structureView.StructureViewBuilder;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.impl.DocumentImpl;
@@ -13,6 +14,7 @@ import com.intellij.openapi.fileEditor.impl.text.TextEditorState;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.UserDataHolderBase;
+import com.intellij.pom.Navigatable;
 import com.intellij.util.EventDispatcher;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -21,7 +23,8 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 
 public abstract class BaseRemoteFileEditor implements TextEditor, PropertyChangeListener {
-  protected Editor myMockTextEditor;
+  private Editor myMockTextEditor;
+  private Navigatable myPendingNavigatable;
 
   protected final Project myProject;
   private final UserDataHolderBase myUserDataHolder = new UserDataHolderBase();
@@ -76,7 +79,7 @@ public abstract class BaseRemoteFileEditor implements TextEditor, PropertyChange
   @Override
   public void setState(@NotNull FileEditorState state) {
     TextEditor textEditor = getTextEditor();
-    if (textEditor != null) {
+    if (textEditor != null && state instanceof TextEditorState) {
       textEditor.setState(state);
     }
   }
@@ -128,5 +131,43 @@ public abstract class BaseRemoteFileEditor implements TextEditor, PropertyChange
   @Override
   public void propertyChange(PropertyChangeEvent evt) {
     myDispatcher.getMulticaster().propertyChange(evt);
+  }
+
+  @Override
+  public boolean canNavigateTo(@NotNull Navigatable navigatable) {
+    TextEditor editor = getTextEditor();
+    return editor == null ? isValid() : editor.canNavigateTo(navigatable);
+  }
+
+  @Override
+  public final void navigateTo(@NotNull Navigatable navigatable) {
+    TextEditor editor = getTextEditor();
+    if (editor != null) {
+      editor.navigateTo(navigatable);
+    }
+    else if (isValid()) {
+      myPendingNavigatable = navigatable;
+    }
+  }
+
+  protected final void contentLoaded() {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+
+    Navigatable navigatable = myPendingNavigatable;
+    if (navigatable != null) {
+      myPendingNavigatable = null;
+      TextEditor editor = getTextEditor();
+      assert editor != null;
+      editor.navigateTo(navigatable);
+    }
+
+    if (myMockTextEditor != null) {
+      EditorFactory.getInstance().releaseEditor(myMockTextEditor);
+      myMockTextEditor = null;
+    }
+  }
+
+  protected final void contentRejected() {
+    myPendingNavigatable = null;
   }
 }

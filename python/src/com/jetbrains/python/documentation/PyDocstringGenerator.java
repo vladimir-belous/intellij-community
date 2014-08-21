@@ -87,8 +87,6 @@ public class PyDocstringGenerator {
     for (PyParameter functionParam : function.getParameterList().getParameters()) {
       String paramName = functionParam.getName();
       if (!functionParam.isSelf() && !StringUtil.isEmpty(paramName)) {
-        assert paramName != null;
-
         String type = signature != null ? signature.getArgTypeQualifiedName(paramName) : null;
 
         if (type != null) {
@@ -140,12 +138,9 @@ public class PyDocstringGenerator {
 
       final VirtualFile virtualFile = myFile.getVirtualFile();
       if (virtualFile == null) return;
-      OpenFileDescriptor descriptor = new OpenFileDescriptor(
-        myProject, virtualFile, myDocStringOwner.getTextOffset() + myDocStringOwner.getTextLength()
-      );
+      OpenFileDescriptor descriptor = new OpenFileDescriptor(myProject, virtualFile, myDocStringExpression.getTextOffset());
       Editor targetEditor = FileEditorManager.getInstance(myProject).openTextEditor(descriptor, true);
       if (targetEditor != null) {
-        targetEditor.getCaretModel().moveToOffset(myDocStringExpression.getTextOffset());
         TemplateManager.getInstance(myProject).startTemplate(targetEditor, template);
       }
     }
@@ -222,8 +217,9 @@ public class PyDocstringGenerator {
       }
       replacementText.append(line);
     }
-    if (replacementText.length() > 0)
-      replacementText.deleteCharAt(replacementText.length()-1);
+    if (replacementText.length() > 0) {
+      replacementText.deleteCharAt(replacementText.length() - 1);
+    }
     addParams(replacementText, false, paramsToAdd);
     for (int i = ind; i != lines.length; ++i) {
       String line = lines[i];
@@ -250,7 +246,7 @@ public class PyDocstringGenerator {
     final Module module = ModuleUtilCore.findModuleForPsiElement(myDocStringOwner);
     if (module != null) {
       PyDocumentationSettings documentationSettings = PyDocumentationSettings.getInstance(module);
-      if (documentationSettings.isPlain(getFile())) return replacementText.length()-1;
+      if (documentationSettings.isPlain(getFile())) return replacementText.length() - 1;
     }
 
     int i = 0;
@@ -297,7 +293,7 @@ public class PyDocstringGenerator {
     if (myDocStringOwner instanceof PyFunction) {
       final PyStatementList statementList = ((PyFunction)myDocStringOwner).getStatementList();
       final Document document = PsiDocumentManager.getInstance(myProject).getDocument(getFile());
-      if (document != null && statementList != null && myFunction != null && statementList.getStatements().length != 0
+      if (document != null && myFunction != null && statementList.getStatements().length != 0
           && document.getLineNumber(statementList.getTextOffset()) != document.getLineNumber(myFunction.getTextOffset())) {
         whitespace = PsiTreeUtil.getPrevSiblingOfType(statementList, PsiWhiteSpace.class);
       }
@@ -410,7 +406,7 @@ public class PyDocstringGenerator {
       final PyStatementList list = myFunction.getStatementList();
       final Document document = PsiDocumentManager.getInstance(myProject).getDocument(getFile());
 
-      if (document != null && list != null) {
+      if (document != null) {
         if (document.getLineNumber(list.getTextOffset()) == document.getLineNumber(myFunction.getTextOffset()) ||
             list.getStatements().length == 0) {
           PyFunction func = elementGenerator.createFromText(LanguageLevel.forElement(myFunction),
@@ -418,7 +414,8 @@ public class PyDocstringGenerator {
                                                             "def " + myFunction.getName() + myFunction.getParameterList().getText()
                                                             + ":\n" + StringUtil.repeat(" ", getIndentSize(myFunction))
                                                             + replacement + "\n" +
-                                                            StringUtil.repeat(" ", getIndentSize(myFunction)) + list.getText());
+                                                            StringUtil.repeat(" ", getIndentSize(myFunction)) + list.getText()
+          );
 
           myFunction = (PyFunction)myFunction.replace(func);
         }
@@ -429,7 +426,9 @@ public class PyDocstringGenerator {
       }
 
       myFunction = CodeInsightUtilCore.forcePsiPostprocessAndRestoreElement(myFunction);
-      myDocStringExpression = myFunction.getDocStringExpression();
+      if (myFunction != null) {
+        myDocStringExpression = myFunction.getDocStringExpression();
+      }
     }
   }
 

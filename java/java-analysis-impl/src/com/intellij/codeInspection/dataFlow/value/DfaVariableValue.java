@@ -25,11 +25,13 @@
 package com.intellij.codeInspection.dataFlow.value;
 
 import com.intellij.codeInsight.NullableNotNullManager;
+import com.intellij.codeInsight.daemon.impl.analysis.JavaGenericsUtil;
 import com.intellij.codeInspection.dataFlow.DfaPsiUtil;
 import com.intellij.codeInspection.dataFlow.Nullness;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Trinity;
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.MultiMap;
@@ -85,13 +87,17 @@ public class DfaVariableValue extends DfaValue {
   private final DfaTypeValue myTypeValue;
   private final List<DfaVariableValue> myDependents = new SmartList<DfaVariableValue>();
 
-  private DfaVariableValue(@NotNull PsiModifierListOwner variable, PsiType varType, boolean isNegated, DfaValueFactory factory, @Nullable DfaVariableValue qualifier) {
+  private DfaVariableValue(@NotNull PsiModifierListOwner variable, @Nullable PsiType varType, boolean isNegated, DfaValueFactory factory, @Nullable DfaVariableValue qualifier) {
     super(factory);
     myVariable = variable;
     myIsNegated = isNegated;
     myQualifier = qualifier;
     myVarType = varType;
-    myTypeValue = varType == null ? null : (DfaTypeValue)myFactory.createTypeValue(varType, Nullness.UNKNOWN);
+    DfaValue typeValue = myFactory.createTypeValue(varType, Nullness.UNKNOWN);
+    myTypeValue = typeValue instanceof DfaTypeValue ? (DfaTypeValue)typeValue : null;
+    if (varType != null && !varType.isValid()) {
+      PsiUtil.ensureValidType(varType, "Variable: " + variable + " of class " + variable.getClass());
+    }
   }
 
   @Nullable
@@ -99,7 +105,7 @@ public class DfaVariableValue extends DfaValue {
     return myTypeValue;
   }
 
-  @Nullable
+  @NotNull
   public PsiModifierListOwner getPsiVariable() {
     return myVariable;
   }
@@ -159,6 +165,16 @@ public class DfaVariableValue extends DfaValue {
       return nullability;
     }
 
+    if (var instanceof PsiParameter && var.getParent() instanceof PsiForeachStatement) {
+      PsiExpression iteratedValue = ((PsiForeachStatement)var.getParent()).getIteratedValue();
+      if (iteratedValue != null) {
+        PsiType itemType = JavaGenericsUtil.getCollectionItemType(iteratedValue);
+        if (itemType != null) {
+          return DfaPsiUtil.getElementNullability(itemType, var);
+        }
+      }
+    }
+
     if (var instanceof PsiField && DfaPsiUtil.isFinalField((PsiVariable)var) && myFactory.isHonorFieldInitializers()) {
       List<PsiExpression> initializers = DfaPsiUtil.findAllConstructorInitializers((PsiField)var);
       if (initializers.isEmpty()) {
@@ -203,6 +219,10 @@ public class DfaVariableValue extends DfaValue {
       return myQualifier != null && myQualifier.isFlushableByCalls();
     }
     return true;
+  }
+
+  public boolean containsCalls() {
+    return myVariable instanceof PsiMethod || myQualifier != null && myQualifier.containsCalls();
   }
 
 }

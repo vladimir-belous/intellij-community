@@ -133,7 +133,7 @@ public class Restarter {
   }
 
   private static void restartOnMac(@NotNull final String... beforeRestart) throws IOException {
-    final String homePath = PathManager.getHomePath();
+    final String homePath = PathManager.getHomePath().substring(0, PathManager.getHomePath().indexOf( ".app" ) + 4);
     if (!StringUtil.endsWithIgnoreCase(homePath, ".app")) throw new IOException("Application bundle not found: " + homePath);
 
     doScheduleRestart(new File(PathManager.getBinPath(), "restarter"), new Consumer<List<String>>() {
@@ -153,12 +153,11 @@ public class Restarter {
   }
 
   public static File createTempExecutable(File executable) throws IOException {
-    String ext = FileUtilRt.getExtension(executable.getName());
-    File copy = FileUtilRt.createTempFile(FileUtilRt.getNameWithoutExtension(executable.getName()),
-                                          StringUtil.isEmptyOrSpaces(ext) ? ".tmp" : ("." + ext),
-                                          false);
-    FileUtilRt.copy(executable, copy);
-    if (!copy.setExecutable(executable.canExecute())) throw new IOException("Cannot make file executable: " + copy);
+    File copy = new File(System.getProperty("user.home") + "/." + System.getProperty("idea.paths.selector") + "/restart/" + executable.getName());
+    if (FileUtilRt.ensureCanCreateFile(copy)) {
+      FileUtilRt.copy(executable, copy);
+      if (!copy.setExecutable(executable.canExecute())) throw new IOException("Cannot make file executable: " + copy);
+    }
     return copy;
   }
 

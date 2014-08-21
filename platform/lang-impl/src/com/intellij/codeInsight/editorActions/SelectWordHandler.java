@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,10 +21,11 @@ import com.intellij.ide.DataManager;
 import com.intellij.injected.editor.EditorWindow;
 import com.intellij.lang.CompositeLanguage;
 import com.intellij.lang.Language;
+import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actionSystem.EditorActionHandler;
@@ -33,11 +34,12 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
-import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.util.Processor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 public class SelectWordHandler extends EditorActionHandler {
   private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.editorActions.SelectWordHandler");
@@ -45,46 +47,58 @@ public class SelectWordHandler extends EditorActionHandler {
   private final EditorActionHandler myOriginalHandler;
 
   public SelectWordHandler(EditorActionHandler originalHandler) {
+    super(true);
     myOriginalHandler = originalHandler;
   }
 
   @Override
-  public void execute(@NotNull Editor editor, DataContext dataContext) {
+  public void doExecute(@NotNull Editor editor, @Nullable Caret caret, DataContext dataContext) {
     if (LOG.isDebugEnabled()) {
       LOG.debug("enter: execute(editor='" + editor + "')");
-    }
-    if (editor instanceof EditorWindow && editor.getSelectionModel().hasSelection()
-        && InjectedLanguageUtil.isSelectionIsAboutToOverflowInjectedFragment((EditorWindow)editor)) {
-      // selection about to spread beyond injected fragment
-      editor = ((EditorWindow)editor).getDelegate();
     }
     Project project = CommonDataKeys.PROJECT.getData(DataManager.getInstance().getDataContext(editor.getComponent()));
     if (project == null) {
       if (myOriginalHandler != null) {
-        myOriginalHandler.execute(editor, dataContext);
+        myOriginalHandler.execute(editor, caret, dataContext);
       }
       return;
     }
-
-    Document document = editor.getDocument();
-    final PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(document);
-
-    if (file == null) {
-      if (myOriginalHandler != null) {
-        myOriginalHandler.execute(editor, dataContext);
-      }
-      return;
-    }
-
     PsiDocumentManager.getInstance(project).commitAllDocuments();
-    doAction(editor, file);
+
+    TextRange range = selectWord(editor, project);
+    if (editor instanceof EditorWindow) {
+      if (range == null || !isInsideEditableInjection((EditorWindow)editor, range, project) || TextRange.from(0, editor.getDocument().getTextLength()).equals(
+        new TextRange(editor.getSelectionModel().getSelectionStart(), editor.getSelectionModel().getSelectionEnd()))) {
+        editor = ((EditorWindow)editor).getDelegate();
+        range = selectWord(editor, project);
+      }
+    }
+    if (range == null) {
+      if (myOriginalHandler != null) {
+        myOriginalHandler.execute(editor, caret, dataContext);
+      }
+    }
+    else {
+      editor.getSelectionModel().setSelection(range.getStartOffset(), range.getEndOffset());
+    }
   }
 
-  private static void doAction(@NotNull Editor editor, @NotNull PsiFile file) {
+  private static boolean isInsideEditableInjection(EditorWindow editor, TextRange range, Project project) {
+    PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
+    if (file == null) return true;
+    List<TextRange> editables = InjectedLanguageManager.getInstance(project).intersectWithAllEditableFragments(file, range);
+
+    return editables.size() == 1 && range.equals(editables.get(0));
+  }
+
+  @Nullable("null means unable to select")
+  private static TextRange selectWord(@NotNull Editor editor, @NotNull Project project) {
+    Document document = editor.getDocument();
+    PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(document);
     if (file instanceof PsiCompiledFile) {
       file = ((PsiCompiledFile)file).getDecompiledPsiFile();
-      if (file == null) return;
     }
+    if (file == null) return null;
 
     FeatureUsageTracker.getInstance().triggerFeatureUsed("editing.select.word");
 
@@ -102,7 +116,7 @@ public class SelectWordHandler extends EditorActionHandler {
 
     while (element instanceof PsiWhiteSpace || element != null && StringUtil.isEmptyOrSpaces(element.getText())) {
       while (element.getNextSibling() == null) {
-        if (element instanceof PsiFile) return;
+        if (element instanceof PsiFile) return null;
         final PsiElement parent = element.getParent();
         final PsiElement[] children = parent.getChildren();
 
@@ -116,9 +130,9 @@ public class SelectWordHandler extends EditorActionHandler {
       }
 
       element = element.getNextSibling();
-      if (element == null) return;
+      if (element == null) return null;
       TextRange range = element.getTextRange();
-      if (range == null) return; // Fix NPE (EA-29110)
+      if (range == null) return null; // Fix NPE (EA-29110)
       caretOffset = range.getStartOffset();
     }
 
@@ -134,6 +148,10 @@ public class SelectWordHandler extends EditorActionHandler {
           element = elementInOtherTree;
         }
       }
+    }
+
+    if (element != null && element.getTextRange().getEndOffset() > editor.getDocument().getTextLength()) {
+      throw new AssertionError("Wrong element range " + element + "; committed=" + PsiDocumentManager.getInstance(project).isCommitted(document));
     }
 
     final TextRange selectionRange = new TextRange(editor.getSelectionModel().getSelectionStart(), editor.getSelectionModel().getSelectionEnd());
@@ -153,8 +171,7 @@ public class SelectWordHandler extends EditorActionHandler {
       }
     });
 
-    TextRange range = minimumRange.get();
-    editor.getSelectionModel().setSelection(range.getStartOffset(), range.getEndOffset());
+    return minimumRange.get();
   }
 
   private static int adjustCaretOffset(@NotNull Editor editor) {

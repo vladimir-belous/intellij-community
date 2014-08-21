@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,7 +50,7 @@ public class IdTableBuilding {
   public static class PlainTextIndexer extends FileTypeIdIndexer {
     @Override
     @NotNull
-    public Map<IdIndexEntry, Integer> map(final FileContent inputData) {
+    public Map<IdIndexEntry, Integer> map(@NotNull final FileContent inputData) {
       final IdDataConsumer consumer = new IdDataConsumer();
       final CharSequence chars = inputData.getContentAsText();
       scanWords(new ScanWordProcessor() {
@@ -132,7 +132,7 @@ public class IdTableBuilding {
 
     @Override
     @NotNull
-    public Map<IdIndexEntry, Integer> map(final FileContent inputData) {
+    public Map<IdIndexEntry, Integer> map(@NotNull final FileContent inputData) {
       final CharSequence chars = inputData.getContentAsText();
       final char[] charsArray = CharArrayUtil.fromSequenceWithoutCopying(chars);
       final IdDataConsumer consumer = new IdDataConsumer();
@@ -149,7 +149,9 @@ public class IdTableBuilding {
         }
 
         private int convertToMask(final WordOccurrence.Kind kind) {
-          if (kind == null) return UsageSearchContext.ANY;
+          if (kind == null) {
+            return UsageSearchContext.ANY;
+          }
           if (kind == WordOccurrence.Kind.CODE) return UsageSearchContext.IN_CODE;
           if (kind == WordOccurrence.Kind.COMMENTS) return UsageSearchContext.IN_COMMENTS;
           if (kind == WordOccurrence.Kind.LITERALS) return UsageSearchContext.IN_STRINGS;

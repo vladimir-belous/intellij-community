@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,8 @@ package com.intellij.find;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.find.editorHeaderActions.*;
 import com.intellij.find.impl.FindManagerImpl;
-import com.intellij.find.impl.livePreview.*;
+import com.intellij.find.impl.livePreview.LivePreviewController;
+import com.intellij.find.impl.livePreview.SearchResults;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.actionSystem.*;
@@ -47,6 +48,7 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -67,11 +69,12 @@ public class EditorSearchComponent extends EditorHeaderComponent implements Data
   private final Project myProject;
   private ActionToolbar myActionsToolbar;
 
-
+  @NotNull
   public Editor getEditor() {
     return myEditor;
   }
 
+  @NotNull
   private final Editor myEditor;
 
   public JTextComponent getSearchField() {
@@ -172,7 +175,7 @@ public class EditorSearchComponent extends EditorHeaderComponent implements Data
     return findModel;
   }
 
-  public EditorSearchComponent(Editor editor, Project project) {
+  public EditorSearchComponent(@NotNull Editor editor, Project project) {
     this(editor, project, createDefaultFindModel(project, editor));
   }
 
@@ -224,7 +227,7 @@ public class EditorSearchComponent extends EditorHeaderComponent implements Data
   }
 
   @Override
-  public void cursorMoved(boolean toChangeSelection) {
+  public void cursorMoved() {
     updateExcludeStatus();
   }
 
@@ -232,10 +235,7 @@ public class EditorSearchComponent extends EditorHeaderComponent implements Data
   public void updateFinished() {
   }
 
-  @Override
-  public void editorChanged(SearchResults sr, Editor oldEditor) {  }
-
-  public EditorSearchComponent(final Editor editor, final Project project, FindModel findModel) {
+  public EditorSearchComponent(@NotNull final Editor editor, final Project project, FindModel findModel) {
     myFindModel = findModel;
 
     myProject = project;
@@ -366,6 +366,9 @@ public class EditorSearchComponent extends EditorHeaderComponent implements Data
     actionGroup.add(new ShowHistoryAction(mySearchFieldGetter, this));
     actionGroup.add(new PrevOccurrenceAction(this, mySearchFieldGetter));
     actionGroup.add(new NextOccurrenceAction(this, mySearchFieldGetter));
+    actionGroup.add(new AddOccurrenceAction(this));
+    actionGroup.add(new RemoveOccurrenceAction(this));
+    actionGroup.add(new SelectAllAction(this));
     actionGroup.add(new FindAllAction(this));
     actionGroup.add(new ToggleMultiline(this));
     actionGroup.add(new ToggleMatchCase(this));
@@ -382,13 +385,16 @@ public class EditorSearchComponent extends EditorHeaderComponent implements Data
     });
     myClickToHighlightLabel.setVisible(false);
 
-    myActionsToolbar = ActionManager.getInstance().createActionToolbar("SearchBar", actionGroup, true);
+    myActionsToolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.EDITOR_TOOLBAR, actionGroup, true);
     myActionsToolbar.setSecondaryActionsTooltip("More Options(" + ShowMoreOptions.SHORT_CUT + ")");
 
     actionGroup.addAction(new ToggleWholeWordsOnlyAction(this));
     if (secondaryActionsAvailable()) {
       actionGroup.addAction(new ToggleInCommentsAction(this)).setAsSecondary(true);
       actionGroup.addAction(new ToggleInLiteralsOnlyAction(this)).setAsSecondary(true);
+      actionGroup.addAction(new ToggleExceptCommentsAction(this)).setAsSecondary(true);
+      actionGroup.addAction(new ToggleExceptLiteralsAction(this)).setAsSecondary(true);
+      actionGroup.addAction(new ToggleExceptCommentsAndLiteralsAction(this)).setAsSecondary(true);
     }
     actionGroup.addAction(new TogglePreserveCaseAction(this));
     actionGroup.addAction(new ToggleSelectionOnlyAction(this));
@@ -470,8 +476,7 @@ public class EditorSearchComponent extends EditorHeaderComponent implements Data
     to.setCaseSensitive(from.isCaseSensitive());
     to.setWholeWordsOnly(from.isWholeWordsOnly());
     to.setRegularExpressions(from.isRegularExpressions());
-    to.setInCommentsOnly(from.isInCommentsOnly());
-    to.setInStringLiteralsOnly(from.isInStringLiteralsOnly());
+    to.setSearchContext(from.getSearchContext());
     if (from.isReplaceState()) {
       to.setPreserveCase(from.isPreserveCase());
     }
@@ -802,10 +807,6 @@ public class EditorSearchComponent extends EditorHeaderComponent implements Data
   }
 
   public void close() {
-    if (myEditor.getSelectionModel().hasSelection()) {
-      myEditor.getCaretModel().moveToOffset(myEditor.getSelectionModel().getSelectionStart());
-      myEditor.getSelectionModel().removeSelection();
-    }
     IdeFocusManager.getInstance(myProject).requestFocus(myEditor.getContentComponent(), false);
 
     myLivePreviewController.dispose();
@@ -934,6 +935,18 @@ public class EditorSearchComponent extends EditorHeaderComponent implements Data
       insets.bottom += 2;
     }
     return insets;
+  }
+
+  public void selectAllOccurrences() {
+    FindUtil.selectSearchResultsInEditor(myEditor, mySearchResults.getOccurrences().iterator(), -1);
+  }
+
+  public void removeOccurrence() {
+    mySearchResults.prevOccurrence(true);
+  }
+
+  public void addNextOccurrence() {
+    mySearchResults.nextOccurrence(true);
   }
 
   private static class MyUndoProvider extends TextComponentUndoProvider {

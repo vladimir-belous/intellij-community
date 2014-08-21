@@ -43,7 +43,7 @@ public class CommandParametersResolutionModule extends BaseCommandRuntimeModule 
     if (command.getWorkingDirectory() == null) {
       command.setWorkingDirectory(resolveWorkingDirectory(command));
     }
-    command.setConfigDir(myAuthCallback.getSpecialConfigDir());
+    command.setConfigDir(myAuthenticationService.getSpecialConfigDir());
     command.saveOriginalParameters();
   }
 
@@ -53,7 +53,7 @@ public class CommandParametersResolutionModule extends BaseCommandRuntimeModule 
     InfoCommandRepositoryProvider infoCommandProvider = new InfoCommandRepositoryProvider(myVcs, command.getTarget());
 
     Repository repository = urlMappingProvider.get();
-    if (repository == null && !SvnCommandName.info.equals(command.getName())) {
+    if (repository == null && !command.isLocalInfo()) {
       repository = infoCommandProvider.get();
     }
 

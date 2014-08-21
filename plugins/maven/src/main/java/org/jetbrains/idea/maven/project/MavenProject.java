@@ -48,6 +48,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class MavenProject {
 
   private static final Key<MavenArtifactIndex> DEPENDENCIES_CACHE_KEY = Key.create("MavenProject.DEPENDENCIES_CACHE_KEY");
+  private static final Key<List<String>> FILTERS_CACHE_KEY = Key.create("MavenProject.FILTERS_CACHE_KEY");
 
   @NotNull private final VirtualFile myFile;
   @NotNull private volatile State myState = new State();
@@ -61,7 +62,10 @@ public class MavenProject {
     .put("5", "1.5")
     .put("1.6", "1.6")
     .put("1.7", "1.7")
-    .put("7", "1.7").build();
+    .put("7", "1.7")
+    .put("1.8", "1.8")
+    .put("8", "1.8")
+    .build();
 
   public enum ProcMode {BOTH, ONLY, NONE}
 
@@ -565,9 +569,42 @@ public class MavenProject {
     return myState.myFilters;
   }
 
+  public List<String> getFilterPropertiesFiles() {
+    List<String> res = getCachedValue(FILTERS_CACHE_KEY);
+    if (res == null) {
+      Element propCfg = getPluginGoalConfiguration("org.codehaus.mojo", "properties-maven-plugin", "read-project-properties");
+      if (propCfg != null) {
+        Element files = propCfg.getChild("files");
+        if (files != null) {
+          res = new ArrayList<String>();
+
+          for (Element file : files.getChildren("file")) {
+            File f = new File(file.getValue());
+            if (!f.isAbsolute()) {
+              f = new File(getDirectory(), file.getValue());
+            }
+
+            res.add(f.getAbsolutePath());
+          }
+        }
+      }
+
+      if (res == null) {
+        res = getFilters();
+      }
+      else {
+        res.addAll(getFilters());
+      }
+
+      res = putCachedValue(FILTERS_CACHE_KEY, res);
+    }
+
+    return res;
+  }
+
   @NotNull
   public MavenProjectChanges read(@NotNull MavenGeneralSettings generalSettings,
-                                  @NotNull Collection<String> profiles,
+                                  @NotNull MavenExplicitProfiles profiles,
                                   @NotNull MavenProjectReader reader,
                                   @NotNull MavenProjectReaderProjectLocator locator) {
     return set(reader.readProject(generalSettings, myFile, profiles, locator), generalSettings, true, false, true);
@@ -765,7 +802,7 @@ public class MavenProject {
   }
 
   @NotNull
-  public Collection<String> getActivatedProfilesIds() {
+  public MavenExplicitProfiles getActivatedProfilesIds() {
     return myState.myActivatedProfilesIds;
   }
 
@@ -1049,7 +1086,7 @@ public class MavenProject {
     Map<String, String> myModelMap;
 
     Collection<String> myProfilesIds;
-    Collection<String> myActivatedProfilesIds;
+    MavenExplicitProfiles myActivatedProfilesIds;
 
     Collection<MavenProjectProblem> myReadingProblems;
     Set<MavenId> myUnresolvedArtifactIds;

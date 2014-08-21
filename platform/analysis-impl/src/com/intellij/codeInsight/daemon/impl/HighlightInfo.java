@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -98,6 +98,7 @@ public class HighlightInfo implements Segment {
   private static final int AFTER_END_OF_LINE_FLAG = 3;
   private static final int FILE_LEVEL_ANNOTATION_FLAG = 4;
   private static final int NEEDS_UPDATE_ON_TYPING_FLAG = 5;
+  PsiElement psiElement;
 
   @NotNull
   ProperTextRange getFixTextRange() {
@@ -113,8 +114,7 @@ public class HighlightInfo implements Segment {
     String description = this.description;
     if (toolTip == null || description == null || !toolTip.contains(DESCRIPTION_PLACEHOLDER)) return toolTip;
     String decoded = StringUtil.replace(toolTip, DESCRIPTION_PLACEHOLDER, XmlStringUtil.escapeString(description));
-    String niceTooltip = XmlStringUtil.wrapInHtml(decoded);
-    return niceTooltip;
+    return XmlStringUtil.wrapInHtml(decoded);
   }
 
   private static String encodeTooltip(String toolTip, String description) {
@@ -176,10 +176,7 @@ public class HighlightInfo implements Segment {
       return forcedTextAttributes;
     }
 
-    final EditorColorsScheme colorsScheme = getColorsScheme(editorColorsScheme);
-    if (colorsScheme == null) {
-      return null;
-    }
+    EditorColorsScheme colorsScheme = getColorsScheme(editorColorsScheme);
 
     if (forcedTextAttributesKey != null) {
       return colorsScheme.getAttributes(forcedTextAttributesKey);
@@ -207,10 +204,7 @@ public class HighlightInfo implements Segment {
     if (forcedTextAttributes != null && forcedTextAttributes.getErrorStripeColor() != null) {
       return forcedTextAttributes.getErrorStripeColor();
     }
-    final EditorColorsScheme scheme = getColorsScheme(colorsScheme);
-    if (scheme == null) {
-      return null;
-    }
+    EditorColorsScheme scheme = getColorsScheme(colorsScheme);
     if (forcedTextAttributesKey != null) {
       TextAttributes forcedTextAttributes = scheme.getAttributes(forcedTextAttributesKey);
       if (forcedTextAttributes != null) {
@@ -243,7 +237,7 @@ public class HighlightInfo implements Segment {
 
   }
 
-  @Nullable
+  @NotNull
   private static EditorColorsScheme getColorsScheme(@Nullable final EditorColorsScheme customScheme) {
     if (customScheme != null) {
       return customScheme;
@@ -324,6 +318,7 @@ public class HighlightInfo implements Segment {
     return true;
   }
 
+  @Override
   public boolean equals(Object obj) {
     if (obj == this) return true;
     if (!(obj instanceof HighlightInfo)) return false;
@@ -339,7 +334,7 @@ public class HighlightInfo implements Segment {
            Comparing.strEqual(info.getDescription(), getDescription());
   }
 
-  public boolean equalsByActualOffset(HighlightInfo info) {
+  public boolean equalsByActualOffset(@NotNull HighlightInfo info) {
     if (info == this) return true;
 
     return info.getSeverity() == getSeverity() &&
@@ -352,10 +347,12 @@ public class HighlightInfo implements Segment {
            Comparing.strEqual(info.getDescription(), getDescription());
   }
 
+  @Override
   public int hashCode() {
     return startOffset;
   }
 
+  @Override
   @NonNls
   public String toString() {
     return getDescription() != null ? getDescription() : "";
@@ -432,6 +429,7 @@ public class HighlightInfo implements Segment {
         return false;
       }
     }
+    info.psiElement = psiElement;
     return true;
   }
 
@@ -656,7 +654,7 @@ public class HighlightInfo implements Segment {
 
   public static final String ANNOTATOR_INSPECTION_SHORT_NAME = "Annotator";
 
-  private static void appendFixes(@Nullable TextRange fixedRange, @NotNull HighlightInfo info, List<Annotation.QuickFixInfo> fixes) {
+  private static void appendFixes(@Nullable TextRange fixedRange, @NotNull HighlightInfo info, @Nullable List<Annotation.QuickFixInfo> fixes) {
     if (fixes != null) {
       for (final Annotation.QuickFixInfo quickFixInfo : fixes) {
         TextRange range = fixedRange != null ? fixedRange : quickFixInfo.textRange;
@@ -668,6 +666,7 @@ public class HighlightInfo implements Segment {
     }
   }
 
+  @NotNull
   public static HighlightInfoType convertType(@NotNull Annotation annotation) {
     ProblemHighlightType type = annotation.getHighlightType();
     if (type == ProblemHighlightType.LIKE_UNUSED_SYMBOL) return HighlightInfoType.UNUSED_SYMBOL;
@@ -686,6 +685,7 @@ public class HighlightInfo implements Segment {
            HighlightInfoType.INFORMATION;
   }
 
+  @NotNull
   public static ProblemHighlightType convertType(HighlightInfoType infoType) {
     if (infoType == HighlightInfoType.ERROR || infoType == HighlightInfoType.WRONG_REF) return ProblemHighlightType.ERROR;
     if (infoType == HighlightInfoType.WARNING) return ProblemHighlightType.GENERIC_ERROR_OR_WARNING;
@@ -693,6 +693,7 @@ public class HighlightInfo implements Segment {
     return ProblemHighlightType.WEAK_WARNING;
   }
 
+  @NotNull
   public static ProblemHighlightType convertSeverityToProblemHighlight(HighlightSeverity severity) {
     return severity == HighlightSeverity.ERROR ? ProblemHighlightType.ERROR :
            severity == HighlightSeverity.WARNING ? ProblemHighlightType.GENERIC_ERROR_OR_WARNING :
@@ -725,6 +726,7 @@ public class HighlightInfo implements Segment {
     private final ProblemGroup myProblemGroup;
     private final String myDisplayName;
     private final Icon myIcon;
+    private Boolean myCanCleanup;
 
     public IntentionActionDescriptor(@NotNull IntentionAction action, final List<IntentionAction> options, final String displayName) {
       this(action, options, displayName, null);
@@ -760,6 +762,20 @@ public class HighlightInfo implements Segment {
       return myAction;
     }
 
+    public boolean canCleanup(@NotNull PsiElement element) {
+      if (myCanCleanup == null) {
+        InspectionProfile profile = InspectionProjectProfileManager.getInstance(element.getProject()).getInspectionProfile();
+        final HighlightDisplayKey key = myKey;
+        if (key == null) {
+          myCanCleanup = false;
+        } else {
+          InspectionToolWrapper toolWrapper = profile.getInspectionTool(key.toString(), element);
+          myCanCleanup = toolWrapper != null && toolWrapper.isCleanupTool();
+        }
+      }
+      return myCanCleanup;
+    }
+
     @Nullable
     public List<IntentionAction> getOptions(@NotNull PsiElement element, @Nullable Editor editor) {
       if (editor != null && Boolean.FALSE.equals(editor.getUserData(IntentionManager.SHOW_INTENTION_OPTIONS_KEY))) {
@@ -787,6 +803,9 @@ public class HighlightInfo implements Segment {
         }
       }
       if (toolWrapper != null) {
+
+        myCanCleanup = toolWrapper.isCleanupTool();
+
         InspectionProfileEntry wrappedTool;
         if (toolWrapper instanceof LocalInspectionToolWrapper) {
           wrappedTool = ((LocalInspectionToolWrapper)toolWrapper).getTool();
@@ -815,16 +834,18 @@ public class HighlightInfo implements Segment {
           if (suppressActions != null) {
             ContainerUtil.addAll(newOptions, suppressActions);
           }
+        } else {
+          SuppressQuickFix[] suppressFixes = wrappedTool.getBatchSuppressActions(element);
+          if (suppressFixes.length > 0) {
+            ContainerUtil.addAll(newOptions, ContainerUtil.map(suppressFixes, new Function<SuppressQuickFix, IntentionAction>() {
+              @Override
+              public IntentionAction fun(SuppressQuickFix fix) {
+                return SuppressIntentionActionFromFix.convertBatchToSuppressIntentionAction(fix);
+              }
+            }));
+          }
         }
-        if (wrappedTool instanceof BatchSuppressableTool) {
-          final SuppressQuickFix[] suppressActions = ((BatchSuppressableTool)wrappedTool).getBatchSuppressActions(element);
-          ContainerUtil.addAll(newOptions, ContainerUtil.map(suppressActions, new Function<SuppressQuickFix, IntentionAction>() {
-            @Override
-            public IntentionAction fun(SuppressQuickFix fix) {
-              return SuppressIntentionActionFromFix.convertBatchToSuppressIntentionAction(fix);
-            }
-          }));
-        }
+
       }
       if (myProblemGroup instanceof SuppressableProblemGroup) {
         final IntentionAction[] suppressActions = ((SuppressableProblemGroup)myProblemGroup).getSuppressActions(element);
@@ -846,6 +867,7 @@ public class HighlightInfo implements Segment {
       return myDisplayName;
     }
 
+    @Override
     @NonNls
     public String toString() {
       String text = getAction().getText();

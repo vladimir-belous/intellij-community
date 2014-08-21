@@ -19,7 +19,9 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
+import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.changes.Change;
@@ -28,6 +30,7 @@ import com.intellij.openapi.vcs.changes.InvokeAfterUpdateMode;
 import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vcs.changes.ui.CommitChangeListDialog;
 import com.intellij.openapi.vcs.ex.ProjectLevelVcsManagerEx;
+import com.intellij.openapi.vcs.ui.VcsBalloonProblemNotifier;
 import com.intellij.openapi.vcs.update.*;
 import com.intellij.util.Consumer;
 import org.jetbrains.annotations.NotNull;
@@ -36,11 +39,11 @@ import org.jetbrains.idea.svn.SvnBundle;
 import org.jetbrains.idea.svn.SvnChangeProvider;
 import org.jetbrains.idea.svn.SvnUtil;
 import org.jetbrains.idea.svn.SvnVcs;
+import org.jetbrains.idea.svn.status.Status;
+import org.jetbrains.idea.svn.status.StatusType;
 import org.jetbrains.idea.svn.update.UpdateEventHandler;
 import org.tmatesoft.svn.core.SVNException;
 import org.tmatesoft.svn.core.SVNURL;
-import org.tmatesoft.svn.core.wc.SVNStatus;
-import org.tmatesoft.svn.core.wc.SVNStatusType;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -267,8 +270,8 @@ public class SvnIntegrateChangesTask extends Task.Backgroundable {
   private void initMergeTarget() {
     final File mergeInfoHolder = myMerger.getMergeInfoHolder();
     if (mergeInfoHolder != null) {
-      final SVNStatus svnStatus = SvnUtil.getStatus(myVcs, mergeInfoHolder);
-      if ((svnStatus != null) && (SVNStatusType.STATUS_MODIFIED.equals(svnStatus.getPropertiesStatus()))) {
+      final Status svnStatus = SvnUtil.getStatus(myVcs, mergeInfoHolder);
+      if ((svnStatus != null) && (StatusType.STATUS_MODIFIED.equals(svnStatus.getPropertiesStatus()))) {
 
         myMergeTarget = FilePathImpl.create(mergeInfoHolder, mergeInfoHolder.isDirectory());
       }
@@ -330,18 +333,37 @@ public class SvnIntegrateChangesTask extends Task.Backgroundable {
       });
     }
 
-    final SvnChangeProvider provider = new SvnChangeProvider(myVcs);
-    final GatheringChangelistBuilder clb = new GatheringChangelistBuilder(myProject, myAccomulatedFiles, myMergeTarget == null ? null : myMergeTarget.getVirtualFile());
-    try {
-      provider.getChanges(dirtyScope, clb, ProgressManager.getInstance().getProgressIndicator(), null);
-    } catch (VcsException e) {
-      Messages.showErrorDialog(SvnBundle.message("action.Subversion.integrate.changes.error.unable.to.collect.changes.text",
-                                                 e.getMessage()), myTitle);
-      return;
-    }
+    new Task.Backgroundable(myVcs.getProject(),
+                            SvnBundle.message("action.Subversion.integrate.changes.collecting.changes.to.commit.task.title")) {
 
-    if (! clb.getChanges().isEmpty()) {
-      CommitChangeListDialog.commitAlienChanges(myProject, clb.getChanges(), myVcs, myMerger.getComment(), myMerger.getComment());
-    }
+      private final GatheringChangelistBuilder changesBuilder = new GatheringChangelistBuilder(myVcs, myAccomulatedFiles);
+      private final Ref<String> caughtError = new Ref<String>();
+
+      @Override
+      public void run(@NotNull ProgressIndicator indicator) {
+        indicator.setIndeterminate(true);
+        if (!myVcs.getProject().isDisposed()) {
+          final SvnChangeProvider provider = new SvnChangeProvider(myVcs);
+
+          try {
+            provider.getChanges(dirtyScope, changesBuilder, indicator, null);
+          }
+          catch (VcsException e) {
+            caughtError.set(SvnBundle.message("action.Subversion.integrate.changes.error.unable.to.collect.changes.text", e.getMessage()));
+          }
+        }
+      }
+
+      @Override
+      public void onSuccess() {
+        if (!caughtError.isNull()) {
+          VcsBalloonProblemNotifier.showOverVersionControlView(myVcs.getProject(), caughtError.get(), MessageType.ERROR);
+        }
+        else if (!changesBuilder.getChanges().isEmpty()) {
+          CommitChangeListDialog
+            .commitAlienChanges(myProject, changesBuilder.getChanges(), myVcs, myMerger.getComment(), myMerger.getComment());
+        }
+      }
+    }.queue();
   }
 }

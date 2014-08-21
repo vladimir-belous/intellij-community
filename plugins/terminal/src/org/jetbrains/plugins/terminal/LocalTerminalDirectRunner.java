@@ -1,6 +1,7 @@
 package org.jetbrains.plugins.terminal;
 
 import com.intellij.execution.TaskExecutor;
+import com.intellij.execution.configurations.EncodingEnvironmentUtil;
 import com.intellij.execution.process.*;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
@@ -8,7 +9,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.HashMap;
@@ -16,6 +16,7 @@ import com.jediterm.pty.PtyProcessTtyConnector;
 import com.jediterm.terminal.TtyConnector;
 import com.pty4j.PtyProcess;
 import com.pty4j.util.PtyUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
@@ -63,12 +64,18 @@ public class LocalTerminalDirectRunner extends AbstractTerminalRunner<PtyProcess
     return null;
   }
 
+  @NotNull
+  public static LocalTerminalDirectRunner createTerminalRunner(Project project) {
+    return new LocalTerminalDirectRunner(project);
+  }
+
   @Override
-  protected PtyProcess createProcess() throws ExecutionException {
+  protected PtyProcess createProcess(@Nullable String directory) throws ExecutionException {
     Map<String, String> envs = new HashMap<String, String>(System.getenv());
-    envs.put("TERM", "xterm");
+    envs.put("TERM", "xterm-256color");
+    EncodingEnvironmentUtil.fixDefaultEncodingIfMac(envs, getProject());
     try {
-      return PtyProcess.exec(getCommand(), envs, currentProjectFolder());
+      return PtyProcess.exec(getCommand(), envs, directory != null ? directory : currentProjectFolder());
     }
     catch (IOException e) {
       throw new ExecutionException(e);
@@ -76,10 +83,14 @@ public class LocalTerminalDirectRunner extends AbstractTerminalRunner<PtyProcess
   }
 
   private String currentProjectFolder() {
-    for (VirtualFile vf : ProjectRootManager.getInstance(myProject).getContentRoots()) {
-      return vf.getCanonicalPath();
+    final ProjectRootManager projectRootManager = ProjectRootManager.getInstance(myProject);
+
+    final VirtualFile[] roots = projectRootManager.getContentRoots();
+    if (roots.length == 1) {
+      roots[0].getCanonicalPath();
     }
-    return null;
+    final VirtualFile baseDir = myProject.getBaseDir();
+    return baseDir == null ? null : baseDir.getCanonicalPath();
   }
 
   @Override

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -314,6 +314,30 @@ public final class IdeKeyEventDispatcher implements Disposable {
     }
   }
 
+  private static KeyStroke getKeyStrokeWithoutCtrlModifier(KeyStroke originalKeyStroke){
+    int modifier=originalKeyStroke.getModifiers()&~InputEvent.CTRL_MASK&~InputEvent.CTRL_DOWN_MASK;
+    try {
+      Method[] methods=AWTKeyStroke.class.getDeclaredMethods();
+      Method getCachedStrokeMethod=null;
+      for (Method method : methods) {
+        if (GET_CACHED_STROKE_METHOD_NAME.equals(method.getName())) {
+          getCachedStrokeMethod = method;
+          getCachedStrokeMethod.setAccessible(true);
+          break;
+        }
+      }
+      if(getCachedStrokeMethod==null){
+        throw new IllegalStateException("not found method with name getCachedStrokeMethod");
+      }
+      Object[] getCachedStrokeMethodArgs=
+        {originalKeyStroke.getKeyChar(), originalKeyStroke.getKeyCode(), modifier, originalKeyStroke.isOnKeyRelease()};
+      return (KeyStroke)getCachedStrokeMethod.invoke(originalKeyStroke, getCachedStrokeMethodArgs);
+    }
+    catch(Exception exc){
+      throw new IllegalStateException(exc.getMessage());
+    }
+  }
+
   private boolean inSecondStrokeInProgressState() {
     KeyEvent e = myContext.getInputEvent();
 
@@ -396,6 +420,15 @@ public final class IdeKeyEventDispatcher implements Disposable {
     KeyStroke originalKeyStroke=KeyStroke.getKeyStrokeForEvent(e);
     KeyStroke keyStroke=getKeyStrokeWithoutMouseModifiers(originalKeyStroke);
 
+
+
+    if (Registry.is("fix.jdk7.alt.shortcuts") && SystemInfo.isMac && SystemInfo.isOracleJvm && (keyStroke.getModifiers() & InputEvent.ALT_MASK) == InputEvent.ALT_MASK)
+    {
+      if (KeymapManager.getInstance().getActiveKeymap().getActionIds(new KeyboardShortcut(keyStroke, null)).length == 0) {
+        keyStroke = getKeyStrokeWithoutCtrlModifier(keyStroke);
+      }
+    }
+
     if (myKeyGestureProcessor.processInitState()) {
       return true;
     }
@@ -472,7 +505,7 @@ public final class IdeKeyEventDispatcher implements Disposable {
         if (shortcut instanceof KeyboardShortcut) {
           KeyboardShortcut keyShortcut = (KeyboardShortcut)shortcut;
           if (keyShortcut.getFirstKeyStroke().equals(myFirstKeyStroke)) {
-            secondKeyStrokes.add(new Pair<AnAction, KeyStroke>(action, keyShortcut.getSecondKeyStroke()));
+            secondKeyStrokes.add(Pair.create(action, keyShortcut.getSecondKeyStroke()));
           }
         }
       }
@@ -601,7 +634,9 @@ public final class IdeKeyEventDispatcher implements Disposable {
 
       processor.onUpdatePassed(e, action, actionEvent);
 
-      ((DataManagerImpl.MyDataContext)myContext.getDataContext()).setEventCount(IdeEventQueue.getInstance().getEventCount(), this);
+      if (myContext.getDataContext() instanceof DataManagerImpl.MyDataContext) { // this is not true for test data contexts
+        ((DataManagerImpl.MyDataContext)myContext.getDataContext()).setEventCount(IdeEventQueue.getInstance().getEventCount(), this);
+      }
       actionManager.fireBeforeActionPerformed(action, actionEvent.getDataContext(), actionEvent);
       Component component = PlatformDataKeys.CONTEXT_COMPONENT.getData(actionEvent.getDataContext());
       if (component != null && !component.isShowing()) {
@@ -651,8 +686,8 @@ public final class IdeKeyEventDispatcher implements Disposable {
       if (!(component instanceof JComponent)) {
         continue;
       }
-      ArrayList listOfActions = (ArrayList)((JComponent)component).getClientProperty(AnAction.ourClientProperty);
-      if (listOfActions == null) {
+      List<AnAction> listOfActions = ActionUtil.getActions((JComponent)component);
+      if (listOfActions.isEmpty()) {
         continue;
       }
       for (Object listOfAction : listOfActions) {
@@ -816,15 +851,17 @@ public final class IdeKeyEventDispatcher implements Disposable {
           };
 
           final KeyStroke keyStroke = pair.getSecond();
-          registerAction(actionText, keyStroke, a);
+          if (keyStroke != null) {
+            registerAction(actionText, keyStroke, a);
 
-          if (keyStroke.getModifiers() == 0) {
-            // do a little trick here, so if I will press Command+R and the second keystroke is just 'R',
-            // I want to be able to hold the Command while pressing 'R'
+            if (keyStroke.getModifiers() == 0) {
+              // do a little trick here, so if I will press Command+R and the second keystroke is just 'R',
+              // I want to be able to hold the Command while pressing 'R'
 
-            final KeyStroke additionalKeyStroke = KeyStroke.getKeyStroke(keyStroke.getKeyCode(), firstKeyStroke.getModifiers());
-            final String _existing = getActionForKeyStroke(additionalKeyStroke);
-            if (_existing == null) registerAction("__additional__" + actionText, additionalKeyStroke, a);
+              final KeyStroke additionalKeyStroke = KeyStroke.getKeyStroke(keyStroke.getKeyCode(), firstKeyStroke.getModifiers());
+              final String _existing = getActionForKeyStroke(additionalKeyStroke);
+              if (_existing == null) registerAction("__additional__" + actionText, additionalKeyStroke, a);
+            }
           }
 
           return true;

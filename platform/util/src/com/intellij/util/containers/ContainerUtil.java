@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -150,9 +150,10 @@ public class ContainerUtil extends ContainerUtilRt {
     return ContainerUtilRt.newArrayList(iterable);
   }
 
-  @NotNull
+  /** @deprecated Use {@link #newArrayListWithCapacity(int)} (to remove in IDEA 15) */
+  @SuppressWarnings("deprecation")
   public static <T> ArrayList<T> newArrayListWithExpectedSize(int size) {
-    return ContainerUtilRt.newArrayListWithExpectedSize(size);
+    return ContainerUtilRt.newArrayListWithCapacity(size);
   }
 
   @NotNull
@@ -198,6 +199,11 @@ public class ContainerUtil extends ContainerUtilRt {
   }
 
   @NotNull
+  public static <T> HashSet<T> newHashSet(int initialCapacity) {
+    return ContainerUtilRt.newHashSet(initialCapacity);
+  }
+
+  @NotNull
   public static <T> HashSet<T> newHashSet(@NotNull T... elements) {
     return ContainerUtilRt.newHashSet(elements);
   }
@@ -210,6 +216,12 @@ public class ContainerUtil extends ContainerUtilRt {
   @NotNull
   public static <T> HashSet<T> newHashSet(@NotNull Iterator<? extends T> iterator) {
     return ContainerUtilRt.newHashSet(iterator);
+  }
+
+  @NotNull
+  public static <T> Set<T> newHashOrEmptySet(@Nullable Iterable<? extends T> iterable) {
+    boolean empty = iterable == null || iterable instanceof Collection && ((Collection)iterable).isEmpty();
+    return empty ? Collections.<T>emptySet() : ContainerUtilRt.newHashSet(iterable);
   }
 
   @NotNull
@@ -301,7 +313,7 @@ public class ContainerUtil extends ContainerUtilRt {
     return CHM_FACTORY.createMap();
   }
 
-  public static <K, V> ConcurrentMap<K,V> newConcurrentMap(TObjectHashingStrategy<K> hashStrategy) {
+  public static <K, V> ConcurrentMap<K,V> newConcurrentMap(@NotNull TObjectHashingStrategy<K> hashStrategy) {
     return CHM_FACTORY.createMap(hashStrategy);
   }
 
@@ -309,7 +321,7 @@ public class ContainerUtil extends ContainerUtilRt {
     return CHM_FACTORY.createMap(initialCapacity);
   }
 
-  public static <K, V> ConcurrentMap<K,V> newConcurrentMap(int initialCapacity, float loadFactor, int concurrencyLevel, TObjectHashingStrategy<K> hashStrategy) {
+  public static <K, V> ConcurrentMap<K,V> newConcurrentMap(int initialCapacity, float loadFactor, int concurrencyLevel, @NotNull TObjectHashingStrategy<K> hashStrategy) {
     return CHM_FACTORY.createMap(initialCapacity, loadFactor, concurrencyLevel, hashStrategy);
   }
 
@@ -319,6 +331,10 @@ public class ContainerUtil extends ContainerUtilRt {
 
   @NotNull
   public static <E> List<E> reverse(@NotNull final List<E> elements) {
+    if (elements.isEmpty()) {
+      return ContainerUtilRt.emptyList();
+    }
+
     return new AbstractList<E>() {
       @Override
       public E get(int index) {
@@ -434,8 +450,8 @@ public class ContainerUtil extends ContainerUtilRt {
   }
 
   @NotNull
-  public static <K, V> Map<K,Pair<V,V>> diff(@NotNull Map<K, V> map1, @NotNull Map<K, V> map2) {
-    final Map<K, Pair<V,V>> res = newHashMap();
+  public static <K, V> Map<K,Couple<V>> diff(@NotNull Map<K, V> map1, @NotNull Map<K, V> map2) {
+    final Map<K, Couple<V>> res = newHashMap();
     final Set<K> keys = newHashSet();
     keys.addAll(map1.keySet());
     keys.addAll(map2.keySet());
@@ -443,7 +459,7 @@ public class ContainerUtil extends ContainerUtilRt {
       V v1 = map1.get(k);
       V v2 = map2.get(k);
       if (!(v1 == v2 || v1 != null && v1.equals(v2))) {
-        res.put(k, Pair.create(v1, v2));
+        res.put(k, Couple.of(v1, v2));
       }
     }
     return res;
@@ -688,6 +704,15 @@ public class ContainerUtil extends ContainerUtilRt {
     return true;
   }
 
+  public static <T> boolean process(@NotNull Iterator<T> iterator, @NotNull Processor<? super T> processor) {
+    while (iterator.hasNext()) {
+      if (!processor.process(iterator.next())) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   @Nullable
   public static <T, V extends T> V find(@NotNull Iterable<V> iterable, @NotNull Condition<T> condition) {
     return find(iterable.iterator(), condition);
@@ -803,6 +828,7 @@ public class ContainerUtil extends ContainerUtilRt {
 
   @NotNull
   public static <T> List<T> findAll(@NotNull Collection<? extends T> collection, @NotNull Condition<? super T> condition) {
+    if (collection.isEmpty()) return emptyList();
     final List<T> result = new SmartList<T>();
     for (final T t : collection) {
       if (condition.value(t)) {
@@ -1047,7 +1073,8 @@ public class ContainerUtil extends ContainerUtilRt {
   }
 
   public static <T, U extends T> U findInstance(@NotNull Iterator<T> iterator, @NotNull Class<U> aClass) {
-    @SuppressWarnings("unchecked") U u = (U)find(iterator, new FilteringIterator.InstanceOf<U>(aClass));
+    //noinspection unchecked
+    U u = (U)find(iterator, FilteringIterator.instanceOf(aClass));
     return u;
   }
 
@@ -1087,6 +1114,10 @@ public class ContainerUtil extends ContainerUtilRt {
    */
   @NotNull
   public static <T> List<T> concat(@NotNull final List<? extends T> list1, @NotNull final List<? extends T> list2) {
+    if (list1.isEmpty() && list2.isEmpty()) {
+      return Collections.emptyList();
+    }
+
     final int size1 = list1.size();
     final int size = size1 + list2.size();
 
@@ -1228,6 +1259,11 @@ public class ContainerUtil extends ContainerUtilRt {
   @Nullable
   public static <T> T getFirstItem(@Nullable Collection<T> items) {
     return getFirstItem(items, null);
+  }
+
+  @Nullable
+  public static <T> T getFirstItem(@Nullable List<T> items) {
+    return items == null || items.isEmpty() ? null : items.get(0);
   }
 
   public static <T> T getFirstItem(@Nullable final Collection<T> items, @Nullable final T def) {
@@ -1385,6 +1421,13 @@ public class ContainerUtil extends ContainerUtilRt {
     else {
       Arrays.sort(a);
     }
+  }
+
+  @NotNull
+  public static <T> List<T> sorted(@NotNull Collection<T> list, @NotNull Comparator<T> comparator) {
+    List<T> sorted = newArrayList(list);
+    sort(sorted, comparator);
+    return sorted;
   }
 
   public static <T> void sort(@NotNull T[] a, @NotNull Comparator<T> comparator) {
@@ -1950,12 +1993,17 @@ public class ContainerUtil extends ContainerUtilRt {
    */
   @NotNull
   public static <T> List<T> createLockFreeCopyOnWriteList() {
-    return new LockFreeCopyOnWriteArrayList<T>();
+    return createConcurrentList();
   }
 
   @NotNull
   public static <T> List<T> createLockFreeCopyOnWriteList(@NotNull Collection<? extends T> c) {
     return new LockFreeCopyOnWriteArrayList<T>(c);
+  }
+
+  @NotNull
+  public static <T> ConcurrentList<T> createConcurrentList() {
+    return new LockFreeCopyOnWriteArrayList<T>();
   }
 
   public static <T> void addIfNotNull(@Nullable T element, @NotNull Collection<T> result) {
@@ -2025,51 +2073,70 @@ public class ContainerUtil extends ContainerUtilRt {
     return result;
   }
 
-  @Contract("null -> null")
-  public static <T> boolean isEmpty(List<T> list) {
-    return list == null || list.isEmpty();
+  @Contract("null -> true")
+  public static <T> boolean isEmpty(Collection<T> collection) {
+    return collection == null || collection.isEmpty();
+  }
+
+  @NotNull
+  public static <T, C extends Collection<T>> C notNullize(@Nullable C collection) {
+    //noinspection unchecked
+    return collection == null ? (C)ContainerUtilRt.emptyList() : collection;
+  }
+
+  @Nullable
+  public static <T, C extends Collection<T>> C nullize(@Nullable C collection) {
+    return isEmpty(collection) ? null : collection;
   }
 
   private interface ConcurrentMapFactory {
-    <T, V> ConcurrentMap<T, V> createMap();
-    <T, V> ConcurrentMap<T, V> createMap(int initialCapacity);
-    <T, V> ConcurrentMap<T, V> createMap(TObjectHashingStrategy<T> hashStrategy);
-    <T, V> ConcurrentMap<T, V> createMap(int initialCapacity, float loadFactor, int concurrencyLevel);
-    <T, V> ConcurrentMap<T, V> createMap(int initialCapacity, float loadFactor, int concurrencyLevel, TObjectHashingStrategy<T> hashStrategy);
+    @NotNull <T, V> ConcurrentMap<T, V> createMap();
+    @NotNull <T, V> ConcurrentMap<T, V> createMap(int initialCapacity);
+    @NotNull <T, V> ConcurrentMap<T, V> createMap(@NotNull TObjectHashingStrategy<T> hashStrategy);
+    @NotNull <T, V> ConcurrentMap<T, V> createMap(int initialCapacity, float loadFactor, int concurrencyLevel);
+    @NotNull <T, V> ConcurrentMap<T, V> createMap(int initialCapacity, float loadFactor, int concurrencyLevel, @NotNull TObjectHashingStrategy<T> hashStrategy);
   }
 
   private static final ConcurrentMapFactory V8_MAP_FACTORY = new ConcurrentMapFactory() {
+    @NotNull
     public <T, V> ConcurrentMap<T, V> createMap() {
       return new ConcurrentHashMap<T,V>();
     }
 
+    @NotNull
     public <T, V> ConcurrentMap<T, V> createMap(int initialCapacity) {
       return new ConcurrentHashMap<T,V>(initialCapacity);
     }
 
-    public <T, V> ConcurrentMap<T, V> createMap(TObjectHashingStrategy<T> hashStrategy) {
+    @NotNull
+    public <T, V> ConcurrentMap<T, V> createMap(@NotNull TObjectHashingStrategy<T> hashStrategy) {
       return new ConcurrentHashMap<T,V>(hashStrategy);
     }
 
+    @NotNull
     public <T, V> ConcurrentMap<T, V> createMap(int initialCapacity, float loadFactor, int concurrencyLevel) {
       return new ConcurrentHashMap<T,V>(initialCapacity, loadFactor, concurrencyLevel);
     }
 
+    @NotNull
     public <T, V> ConcurrentMap<T, V> createMap(int initialCapacity, float loadFactor, int concurrencyLevel, @NotNull TObjectHashingStrategy<T> hashingStrategy) {
       return new ConcurrentHashMap<T,V>(initialCapacity, loadFactor, concurrencyLevel, hashingStrategy);
     }
   };
 
   private static final ConcurrentMapFactory PLATFORM_MAP_FACTORY = new ConcurrentMapFactory() {
+    @NotNull
     public <T, V> ConcurrentMap<T, V> createMap() {
       return createMap(16, 0.75f, DEFAULT_CONCURRENCY_LEVEL);
     }
 
+    @NotNull
     public <T, V> ConcurrentMap<T, V> createMap(int initialCapacity) {
       return new java.util.concurrent.ConcurrentHashMap<T,V>(initialCapacity);
     }
 
-    public <T, V> ConcurrentMap<T, V> createMap(TObjectHashingStrategy<T> hashingStrategy) {
+    @NotNull
+    public <T, V> ConcurrentMap<T, V> createMap(@NotNull TObjectHashingStrategy<T> hashingStrategy) {
       if (hashingStrategy != canonicalStrategy()) {
         throw new UnsupportedOperationException("Custom hashStrategy is not supported in java.util.concurrent.ConcurrentHashMap");
       }
@@ -2077,10 +2144,12 @@ public class ContainerUtil extends ContainerUtilRt {
       return createMap();
     }
 
+    @NotNull
     public <T, V> ConcurrentMap<T, V> createMap(int initialCapacity, float loadFactor, int concurrencyLevel) {
       return new java.util.concurrent.ConcurrentHashMap<T,V>(initialCapacity, loadFactor, concurrencyLevel);
     }
 
+    @NotNull
     public <T, V> ConcurrentMap<T, V> createMap(int initialCapacity, float loadFactor, int concurrencyLevel, @NotNull TObjectHashingStrategy<T> hashingStrategy) {
       if (hashingStrategy != canonicalStrategy()) {
         throw new UnsupportedOperationException("Custom hashStrategy is not supported in java.util.concurrent.ConcurrentHashMap");
@@ -2095,6 +2164,16 @@ public class ContainerUtil extends ContainerUtilRt {
   private static boolean isAtLeastJava7() {
     // IBM JDK provides correct version in java.version property, but not in java.runtime.version property
     return StringUtil.compareVersionNumbers(SystemInfo.JAVA_VERSION, "1.7") >= 0;
+  }
+
+  public static <T extends Comparable<T>> int compareLexicographically(List<T> o1, List<T> o2) {
+    for (int i = 0; i < Math.min(o1.size(), o2.size()); i++) {
+      int result = o1.get(i).compareTo(o2.get(i));
+      if (result != 0) {
+        return result;
+      }
+    }
+    return o1.size() < o2.size() ? -1 : o1.size() == o2.size() ? 0 : 1;
   }
 }
 

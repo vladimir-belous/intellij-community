@@ -84,6 +84,7 @@ public class FormBuilder {
     final int index = UIUtil.getDisplayMnemonicIndex(labelText);
     if (index != -1) {
       label.setDisplayedMnemonic(labelText.charAt(index + 1));
+      label.setDisplayedMnemonicIndex(index);
     }
     label.setLabelFor(component);
 
@@ -107,6 +108,11 @@ public class FormBuilder {
   }
 
   public FormBuilder addVerticalGap(final int height) {
+    if (height == -1) {
+      myPanel.add(new JLabel(), new GridBagConstraints(0, myLineCount++, 2, 1, 0, 1, CENTER, NONE, new Insets(0, 0, 0, 0), 0, 0));
+      return this;
+    }
+
     return addLabeledComponent((JLabel)null,
                                new Box.Filler(new Dimension(0, height), new Dimension(0, height), new Dimension(Short.MAX_VALUE, height)));
   }

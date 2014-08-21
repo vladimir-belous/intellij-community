@@ -25,6 +25,8 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.ThrowableComputable;
+import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.*;
@@ -36,7 +38,6 @@ import git4idea.config.GitVcsSettings;
 import git4idea.history.browser.GitHeavyCommit;
 import git4idea.history.wholeTree.AbstractHash;
 import git4idea.history.wholeTree.GitCommitDetailsProvider;
-import git4idea.log.GitContentRevisionFactory;
 import git4idea.repo.GitRepository;
 import icons.Git4ideaIcons;
 import org.jetbrains.annotations.NotNull;
@@ -48,6 +49,8 @@ import java.util.*;
  * @author Kirill Likhodedov
  */
 public class GitCherryPickAction extends DumbAwareAction {
+
+  private static final String NAME = "Cherry-Pick";
   private static final Logger LOG = Logger.getInstance(GitCherryPickAction.class);
 
   @NotNull private final GitPlatformFacade myPlatformFacade;
@@ -55,7 +58,7 @@ public class GitCherryPickAction extends DumbAwareAction {
   @NotNull private final Set<Hash> myIdsInProgress;
 
   public GitCherryPickAction() {
-    super("Cherry-pick", "Cherry-pick", Git4ideaIcons.CherryPick);
+    super(NAME, null, Git4ideaIcons.CherryPick);
     myGit = ServiceManager.getService(Git.class);
     myPlatformFacade = ServiceManager.getService(GitPlatformFacade.class);
     myIdsInProgress = ContainerUtil.newHashSet();
@@ -71,7 +74,7 @@ public class GitCherryPickAction extends DumbAwareAction {
     }
 
     for (VcsFullCommitDetails commit : commits) {
-      myIdsInProgress.add(commit.getHash());
+      myIdsInProgress.add(commit.getId());
     }
 
     FileDocumentManager.getInstance().saveAllDocuments();
@@ -80,16 +83,15 @@ public class GitCherryPickAction extends DumbAwareAction {
     new Task.Backgroundable(project, "Cherry-picking", false) {
       public void run(@NotNull ProgressIndicator indicator) {
         try {
-          boolean autoCommit = GitVcsSettings.getInstance(myProject).isAutoCommitOnCherryPick();
           Map<GitRepository, List<VcsFullCommitDetails>> commitsInRoots = sortCommits(groupCommitsByRoots(project, commits));
-          new GitCherryPicker(myProject, myGit, myPlatformFacade, autoCommit).cherryPick(commitsInRoots);
+          new GitCherryPicker(project, myGit, myPlatformFacade, isAutoCommit(project)).cherryPick(commitsInRoots);
         }
         finally {
           ApplicationManager.getApplication().invokeLater(new Runnable() {
             public void run() {
               myPlatformFacade.getChangeListManager(project).unblockModalNotifications();
               for (VcsFullCommitDetails commit : commits) {
-                myIdsInProgress.remove(commit.getHash());
+                myIdsInProgress.remove(commit.getId());
               }
             }
           });
@@ -129,15 +131,21 @@ public class GitCherryPickAction extends DumbAwareAction {
     return groupedCommits;
   }
 
+  private static boolean isAutoCommit(@NotNull Project project) {
+    return GitVcsSettings.getInstance(project).isAutoCommitOnCherryPick();
+  }
+
   @Override
   public void update(AnActionEvent e) {
     super.update(e);
-    final VcsLog log = getVcsLog(e);
-    if (log != null && !DvcsUtil.logHasRootForVcs(log, GitVcs.getKey())) {
+    VcsLog log = getVcsLog(e);
+    Project project = getEventProject(e);
+    if (project == null || log == null || !DvcsUtil.logHasRootForVcs(log, GitVcs.getKey())) {
       e.getPresentation().setEnabledAndVisible(false);
     }
     else {
       e.getPresentation().setEnabled(enabled(e));
+      e.getPresentation().setText(isAutoCommit(project) ? NAME : NAME + "...");
     }
   }
 
@@ -150,7 +158,7 @@ public class GitCherryPickAction extends DumbAwareAction {
     }
 
     for (VcsFullCommitDetails commit : commits) {
-      if (myIdsInProgress.contains(commit.getHash())) {
+      if (myIdsInProgress.contains(commit.getId())) {
         return false;
       }
       GitRepository repository = myPlatformFacade.getRepositoryManager(project).getRepositoryForRoot(commit.getRoot());
@@ -212,10 +220,16 @@ public class GitCherryPickAction extends DumbAwareAction {
             return factory.createHash(hashValue);
           }
         });
+        final List<Change> changes = commit.getChanges();
         return factory.createFullDetails(
           factory.createHash(commit.getHash().getValue()), parents, commit.getAuthorTime(), commit.getRoot(), commit.getSubject(),
           commit.getAuthor(), commit.getAuthorEmail(), commit.getDescription(), commit.getCommitter(), commit.getCommitterEmail(),
-          commit.getDate().getTime(), commit.getChanges(), GitContentRevisionFactory.getInstance(project)
+          commit.getDate().getTime(), new ThrowableComputable<Collection<Change>, Exception>() {
+            @Override
+            public Collection<Change> compute() throws Exception {
+              return changes;
+            }
+          }
         );
       }
     });
@@ -230,7 +244,7 @@ public class GitCherryPickAction extends DumbAwareAction {
   private static Collection<String> getContainingBranches(AnActionEvent event, VcsFullCommitDetails commit, GitRepository repository) {
     GitCommitDetailsProvider detailsProvider = event.getData(GitVcs.COMMIT_DETAILS_PROVIDER);
     if (detailsProvider != null) {
-      return detailsProvider.getContainingBranches(repository.getRoot(), AbstractHash.create(commit.getHash().toShortString()));
+      return detailsProvider.getContainingBranches(repository.getRoot(), AbstractHash.create(commit.getId().toShortString()));
     }
     if (event.getProject() == null) {
       return null;
@@ -239,7 +253,7 @@ public class GitCherryPickAction extends DumbAwareAction {
     if (log == null) {
       return null;
     }
-    return log.getContainingBranches(commit.getHash());
+    return log.getContainingBranches(commit.getId());
   }
 
 }

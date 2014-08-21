@@ -16,9 +16,12 @@
 package com.intellij.xdebugger.impl.ui.tree.nodes;
 
 import com.intellij.xdebugger.XDebugSession;
+import com.intellij.xdebugger.XExpression;
 import com.intellij.xdebugger.evaluation.XDebuggerEvaluator;
 import com.intellij.xdebugger.frame.XValue;
+import com.intellij.xdebugger.impl.breakpoints.XExpressionImpl;
 import com.intellij.xdebugger.impl.frame.WatchInplaceEditor;
+import com.intellij.xdebugger.impl.frame.XDebugView;
 import com.intellij.xdebugger.impl.frame.XWatchesView;
 import com.intellij.xdebugger.impl.ui.DebuggerUIUtil;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
@@ -35,21 +38,18 @@ import java.util.List;
  * @author nik
  */
 public class WatchesRootNode extends XDebuggerTreeNode {
-  private final XDebugSession mySession;
   private final XWatchesView myWatchesView;
   private List<WatchNode> myChildren;
   private List<XDebuggerTreeNode> myLoadedChildren;
   private XDebuggerEvaluator myCurrentEvaluator;
 
-  public WatchesRootNode(final @NotNull XDebuggerTree tree,
-                         @NotNull XDebugSession session,
+  public WatchesRootNode(@NotNull XDebuggerTree tree,
                          @NotNull XWatchesView watchesView,
-                         @NotNull String[] watchExpressions) {
+                         @NotNull XExpression[] watchExpressions) {
     super(tree, null, false);
-    mySession = session;
     myWatchesView = watchesView;
     myChildren = new ArrayList<WatchNode>();
-    for (String watchExpression : watchExpressions) {
+    for (XExpression watchExpression : watchExpressions) {
       myChildren.add(WatchMessageNode.createMessageNode(tree, this, watchExpression));
     }
   }
@@ -59,7 +59,7 @@ public class WatchesRootNode extends XDebuggerTreeNode {
     List<WatchNode> newChildren = new ArrayList<WatchNode>();
     if (evaluator != null) {
       for (WatchNode child : myChildren) {
-        final String expression = child.getExpression();
+        final XExpression expression = child.getExpression();
         final WatchMessageNode evaluatingNode = WatchMessageNode.createEvaluatingNode(myTree, this, expression);
         newChildren.add(evaluatingNode);
         evaluator.evaluate(expression, new MyEvaluationCallback(evaluatingNode), null);
@@ -67,7 +67,7 @@ public class WatchesRootNode extends XDebuggerTreeNode {
     }
     else {
       for (WatchNode child : myChildren) {
-        final String expression = child.getExpression();
+        final XExpression expression = child.getExpression();
         newChildren.add(WatchMessageNode.createMessageNode(myTree, this, expression));
       }
     }
@@ -124,7 +124,7 @@ public class WatchesRootNode extends XDebuggerTreeNode {
   }
 
   public void addWatchExpression(final @Nullable XDebuggerEvaluator evaluator,
-                                 final @NotNull String expression,
+                                 final @NotNull XExpression expression,
                                  int index, final boolean navigateToWatchNode) {
     WatchMessageNode message = evaluator != null ? WatchMessageNode.createEvaluatingNode(myTree, this, expression) : WatchMessageNode.createMessageNode(myTree, this, expression);
     if (index == -1) {
@@ -177,7 +177,7 @@ public class WatchesRootNode extends XDebuggerTreeNode {
   }
 
   public void editWatch(@Nullable WatchNode node) {
-    WatchNode messageNode = WatchMessageNode.createMessageNode(myTree, this, "");
+    WatchNode messageNode = WatchMessageNode.createMessageNode(myTree, this, XExpressionImpl.EMPTY_EXPRESSION);
     int index = node != null ? myChildren.indexOf(node) : -1;
     if (index == -1) {
       myChildren.add(messageNode);
@@ -187,8 +187,10 @@ public class WatchesRootNode extends XDebuggerTreeNode {
       myChildren.set(index, messageNode);
       fireNodeStructureChanged(messageNode);
     }
-    WatchInplaceEditor editor = new WatchInplaceEditor(this, mySession, myWatchesView, messageNode, "watch", node);
-    editor.show();
+    XDebugSession session = XDebugView.getSession(myTree);
+    if (session != null) {
+      new WatchInplaceEditor(this, session, myWatchesView, messageNode, "watch", node).show();
+    }
   }
 
   private class MyEvaluationCallback extends XEvaluationCallbackBase {

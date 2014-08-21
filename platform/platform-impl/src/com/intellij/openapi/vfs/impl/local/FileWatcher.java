@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,7 +30,6 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.newvfs.ManagingFS;
 import com.intellij.util.SmartList;
 import com.intellij.util.TimeoutUtil;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -53,8 +52,7 @@ import static com.intellij.util.containers.ContainerUtil.*;
  * @author max
  */
 public class FileWatcher {
-  @NonNls public static final String PROPERTY_WATCHER_DISABLED = "idea.filewatcher.disabled";
-  @NonNls public static final String PROPERTY_WATCHER_EXECUTABLE_PATH = "idea.filewatcher.executable.path";
+  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vfs.impl.local.FileWatcher");
 
   public static final NotNullLazyValue<NotificationGroup> NOTIFICATION_GROUP = new NotNullLazyValue<NotificationGroup>() {
     @NotNull @Override
@@ -75,11 +73,10 @@ public class FileWatcher {
     }
   }
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vfs.impl.local.FileWatcher");
-
-  @NonNls private static final String ROOTS_COMMAND = "ROOTS";
-  @NonNls private static final String EXIT_COMMAND = "EXIT";
-
+  private static final String PROPERTY_WATCHER_DISABLED = "idea.filewatcher.disabled";
+  private static final String PROPERTY_WATCHER_EXECUTABLE_PATH = "idea.filewatcher.executable.path";
+  private static final String ROOTS_COMMAND = "ROOTS";
+  private static final String EXIT_COMMAND = "EXIT";
   private static final int MAX_PROCESS_LAUNCH_ATTEMPT_COUNT = 10;
 
   private final ManagingFS myManagingFS;
@@ -122,9 +119,6 @@ public class FileWatcher {
           ShowFilePathAction.openFile(myExecutable);
         }
       });
-    }
-    else if (!isUpToDate(myExecutable)) {
-      notifyOnFailure(ApplicationBundle.message("watcher.exe.outdated"), null);
     }
     else {
       try {
@@ -184,30 +178,16 @@ public class FileWatcher {
 
   @Nullable
   private static File getExecutable() {
-    String execPath = null;
+    String execPath = System.getProperty(PROPERTY_WATCHER_EXECUTABLE_PATH);
+    if (execPath != null) return new File(execPath);
 
-    final String altExecPath = System.getProperty(PROPERTY_WATCHER_EXECUTABLE_PATH);
-    if (altExecPath != null && new File(altExecPath).isFile()) {
-      execPath = FileUtil.toSystemDependentName(altExecPath);
-    }
+    String execName = getExecutableName(false);
+    if (execName == null) return null;
 
-    if (execPath == null) {
-      final String execName = getExecutableName(false);
-      if (execName == null) {
-        return null;
-      }
-      execPath = FileUtil.join(PathManager.getBinPath(), execName);
-    }
-
-    File exec = new File(execPath);
-    if (!exec.exists()) {
-      String homePath = PathManager.getHomePath();
-      if (new File(homePath, "community").exists()) {
-        homePath += File.separator + "community";
-      }
-      exec = new File(FileUtil.join(homePath, "bin", getExecutableName(true)));
-    }
-    return exec;
+    return FileUtil.findFirstThatExist(
+      FileUtil.join(PathManager.getBinPath(), execName),
+      FileUtil.join(PathManager.getHomePath(), "community", "bin", getExecutableName(true)),
+      FileUtil.join(PathManager.getBinPath(), getExecutableName(true)));
   }
 
   @Nullable
@@ -216,14 +196,6 @@ public class FileWatcher {
     else if (SystemInfo.isMac) return (withSubDir ? "mac" + File.separator : "") + "fsnotifier";
     else if (SystemInfo.isLinux) return (withSubDir ? "linux" + File.separator : "") + (SystemInfo.isAMD64 ? "fsnotifier64" : "fsnotifier");
     return null;
-  }
-
-  private static boolean isUpToDate(File executable) {
-    long length = SystemInfo.isWindows ? 71208 :
-                  SystemInfo.isMac ? 13924 :
-                  SystemInfo.isLinux ? SystemInfo.isAMD64 ? 29155 : 22791 :
-                  -1;
-    return length < 0 || length == executable.length();
   }
 
   public void notifyOnFailure(final String cause, @Nullable final NotificationListener listener) {
@@ -532,8 +504,6 @@ public class FileWatcher {
       notifyOnEvent();
     }
 
-    private int myChangeRequests, myFilteredRequests;
-
     private void processChange(String path, WatcherOp op) {
       if (SystemInfo.isWindows && op == WatcherOp.RECDIRTY && path.length() == 3 && Character.isLetter(path.charAt(0))) {
         VirtualFile root = LocalFileSystem.getInstance().findFileByPath(path);
@@ -550,23 +520,15 @@ public class FileWatcher {
         // collapse subsequent change file change notifications that happen once we copy large file,
         // this allows reduction of path checks at least 20% for Windows
         synchronized (myLock) {
-          ++myChangeRequests;
-
-          // TODO: remove logging once finalized
-          if ((myChangeRequests & 0x3fff) == 0) {
-            LOG.info("Change requests:" + myChangeRequests + ", filtered:" + myFilteredRequests);
-          }
-
-          for(int i = 0; i < myLastChangedPaths.length; ++i) {
+          for (int i = 0; i < myLastChangedPaths.length; ++i) {
             int last = myLastChangedPathIndex - i - 1;
             if (last < 0) last += myLastChangedPaths.length;
             String lastChangedPath = myLastChangedPaths[last];
             if (lastChangedPath != null && lastChangedPath.equals(path)) {
-              ++myFilteredRequests;
               return;
             }
           }
-          myLastChangedPaths[myLastChangedPathIndex ++] = path;
+          myLastChangedPaths[myLastChangedPathIndex++] = path;
           if (myLastChangedPathIndex == myLastChangedPaths.length) myLastChangedPathIndex = 0;
         }
       }
@@ -593,8 +555,11 @@ public class FileWatcher {
           case CREATE:
           case DELETE:
             for (String p : paths) {
+              myDirtyPaths.dirtyPaths.add(p);
               String parentPath = new File(p).getParent();
-              myDirtyPaths.dirtyPaths.add(parentPath != null ? parentPath : p);
+              if (parentPath != null) {
+                myDirtyPaths.dirtyPaths.add(parentPath);
+              }
             }
             break;
 

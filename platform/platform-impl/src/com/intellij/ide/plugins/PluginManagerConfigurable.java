@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,15 +34,7 @@ import javax.swing.*;
 import javax.swing.table.TableModel;
 import java.util.List;
 
-/**
- * Created by IntelliJ IDEA.
- * User: stathik
- * Date: Oct 26, 2003
- * Time: 9:30:44 PM
- * To change this template use Options | File Templates.
- */
 public class PluginManagerConfigurable extends BaseConfigurable implements SearchableConfigurable, Configurable.NoScroll {
-
   @NonNls private static final String POSTPONE = "&Postpone";
   public static final String ID = "preferences.pluginManager";
   public static final String DISPLAY_NAME = IdeBundle.message("title.plugins");
@@ -68,34 +60,38 @@ public class PluginManagerConfigurable extends BaseConfigurable implements Searc
     return myPluginManagerMain.getPluginTable();
   }
 
+  @Override
   public String getDisplayName() {
     return DISPLAY_NAME;
   }
 
+  @Override
   public void reset() {
     myPluginManagerMain.reset();
-    if (myAvailable) {
-      final int column = myUISettings.AVAILABLE_SORT_MODE;
-      if (column >= 0) {
-        for (final SortOrder sortOrder : SortOrder.values()) {
-          if (sortOrder.ordinal() == myUISettings.AVAILABLE_SORT_COLUMN_ORDER) {
-            myPluginManagerMain.pluginsModel.setSortKey(new RowSorter.SortKey(column, sortOrder));
-            break;
-          }
-        }
-      }
-      myPluginManagerMain.pluginsModel.setSortByStatus(myUISettings.AVAILABLE_SORT_BY_STATUS);
-    } else {
-      myPluginManagerMain.pluginsModel.setSortByStatus(myUISettings.INSTALLED_SORT_BY_STATUS);
-    }
+    //if (myAvailable) {
+    //  final int column = myUISettings.AVAILABLE_SORT_MODE;
+    //  if (column >= 0) {
+    //    for (final SortOrder sortOrder : SortOrder.values()) {
+    //      if (sortOrder.ordinal() == myUISettings.AVAILABLE_SORT_COLUMN_ORDER) {
+    //        myPluginManagerMain.pluginsModel.setSortKey(new RowSorter.SortKey(column, sortOrder));
+    //        break;
+    //      }
+    //    }
+    //  }
+    //  myPluginManagerMain.pluginsModel.setSortByStatus(myUISettings.AVAILABLE_SORT_BY_STATUS);
+    //} else {
+    //  myPluginManagerMain.pluginsModel.setSortByStatus(myUISettings.INSTALLED_SORT_BY_STATUS);
+    //}
     myPluginManagerMain.pluginsModel.sort();
     getSplitterProportions().restoreSplitterProportions(myPluginManagerMain.getMainPanel());
   }
 
+  @Override
   public String getHelpTopic() {
     return ID;
   }
 
+  @Override
   public void disposeUIResources() {
     if (myPluginManagerMain != null) {
       getSplitterProportions().saveSplitterProportions(myPluginManagerMain.getMainPanel());
@@ -124,6 +120,7 @@ public class PluginManagerConfigurable extends BaseConfigurable implements Searc
     return myAvailable ? myUISettings.getAvailableSplitterProportionsData() : myUISettings.getSplitterProportionsData();
   }
 
+  @Override
   public JComponent createComponent() {
     return getOrCreatePanel().getMainPanel();
   }
@@ -132,6 +129,7 @@ public class PluginManagerConfigurable extends BaseConfigurable implements Searc
     return new InstalledPluginsManagerMain(myUISettings);
   }
 
+  @Override
   public void apply() throws ConfigurationException {
     final String applyMessage = myPluginManagerMain.apply();
     if (applyMessage != null) {
@@ -186,18 +184,22 @@ public class PluginManagerConfigurable extends BaseConfigurable implements Searc
     if (response == Messages.YES) app.restart(true);
   }
 
+  @Override
   public boolean isModified() {
     return myPluginManagerMain != null && myPluginManagerMain.isModified();
   }
 
+  @Override
   @NotNull
   public String getId() {
     return getHelpTopic();
   }
 
+  @Override
   @Nullable
   public Runnable enableSearch(final String option) {
     return new Runnable(){
+      @Override
       public void run() {
         if (myPluginManagerMain == null) return;
         myPluginManagerMain.filter(option);

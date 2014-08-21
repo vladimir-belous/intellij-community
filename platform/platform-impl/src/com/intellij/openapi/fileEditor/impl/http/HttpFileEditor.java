@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,11 @@
  */
 package com.intellij.openapi.fileEditor.impl.http;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.fileEditor.TextEditor;
 import com.intellij.openapi.fileEditor.impl.BaseRemoteFileEditor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.impl.http.HttpVirtualFile;
-import com.intellij.pom.Navigatable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,6 +35,22 @@ public class HttpFileEditor extends BaseRemoteFileEditor {
     super(project);
 
     myPanel = new RemoteFilePanel(project, virtualFile, this);
+    virtualFile.getFileInfo().download().doWhenDone(new Runnable() {
+      @Override
+      public void run() {
+        ApplicationManager.getApplication().invokeLater(new Runnable() {
+          @Override
+          public void run() {
+            contentLoaded();
+          }
+        }, myProject.getDisposed());
+      }
+    }).doWhenRejected(new Runnable() {
+      @Override
+      public void run() {
+        contentRejected();
+      }
+    });
   }
 
   @Override
@@ -66,20 +82,6 @@ public class HttpFileEditor extends BaseRemoteFileEditor {
   @Override
   public void deselectNotify() {
     myPanel.deselectNotify();
-  }
-
-  @Override
-  public boolean canNavigateTo(@NotNull Navigatable navigatable) {
-    TextEditor textEditor = getTextEditor();
-    return textEditor != null && textEditor.canNavigateTo(navigatable);
-  }
-
-  @Override
-  public void navigateTo(@NotNull Navigatable navigatable) {
-    final TextEditor textEditor = myPanel.getFileEditor();
-    if (textEditor != null) {
-      textEditor.navigateTo(navigatable);
-    }
   }
 
   @Override

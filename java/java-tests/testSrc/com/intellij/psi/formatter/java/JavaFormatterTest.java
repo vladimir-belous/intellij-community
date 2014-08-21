@@ -15,6 +15,7 @@
  */
 package com.intellij.psi.formatter.java;
 
+import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.fileTypes.StdFileTypes;
@@ -25,10 +26,7 @@ import com.intellij.psi.JavaCodeFragmentFactory;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiCodeFragment;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.codeStyle.CodeStyleManager;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
-import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
+import com.intellij.psi.codeStyle.*;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
 
@@ -667,7 +665,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   public void testParametersAlignment() throws Exception {
     final CommonCodeStyleSettings settings = getSettings();
     settings.ALIGN_MULTILINE_PARAMETERS_IN_CALLS = true;
-    settings.getRootSettings().RIGHT_MARGIN = 140;
+    settings.RIGHT_MARGIN = 140;
     doTest();
   }
 
@@ -906,7 +904,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   public void testBraceOnNewLineIfWrapped() throws Exception {
     getSettings().BINARY_OPERATION_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     getSettings().BRACE_STYLE = CommonCodeStyleSettings.NEXT_LINE_IF_WRAPPED;
-    getSettings().getRootSettings().RIGHT_MARGIN = 35;
+    getSettings().RIGHT_MARGIN = 35;
     getSettings().ALIGN_MULTILINE_BINARY_OPERATION = true;
 
     doTextTest("class Foo {\n" +
@@ -931,7 +929,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   }
 
   public void testFirstArgumentWrapping() throws Exception {
-    getSettings().getRootSettings().RIGHT_MARGIN = 20;
+    getSettings().RIGHT_MARGIN = 20;
     getSettings().CALL_PARAMETERS_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     doTextTest("class Foo {\n" + "    void foo() {\n" + "        fooFooFooFoo(1);" + "    }\n" + "}",
                "class Foo {\n" + "    void foo() {\n" + "        fooFooFooFoo(\n" + "                1);\n" + "    }\n" + "}");
@@ -959,7 +957,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   public void testAssertStatementWrapping() throws Exception {
     getSettings().ASSERT_STATEMENT_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     getSettings().BINARY_OPERATION_WRAP = CommonCodeStyleSettings.DO_NOT_WRAP;
-    getSettings().getRootSettings().RIGHT_MARGIN = 40;
+    getSettings().RIGHT_MARGIN = 40;
     final JavaPsiFacade facade = getJavaFacade();
     final LanguageLevel effectiveLanguageLevel = LanguageLevelProjectExtension.getInstance(facade.getProject()).getLanguageLevel();
     try {
@@ -1004,7 +1002,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   public void testAssertStatementWrapping2() throws Exception {
     getSettings().BINARY_OPERATION_WRAP = CommonCodeStyleSettings.DO_NOT_WRAP;
     getSettings().ASSERT_STATEMENT_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
-    getSettings().getRootSettings().RIGHT_MARGIN = 37;
+    getSettings().RIGHT_MARGIN = 37;
 
     final CommonCodeStyleSettings.IndentOptions options = getSettings().getRootSettings().getIndentOptions(StdFileTypes.JAVA);
     options.INDENT_SIZE = 2;
@@ -1047,7 +1045,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   public void test() throws Exception {
     getSettings().getRootSettings().getIndentOptions(StdFileTypes.JAVA).INDENT_SIZE = 2;
     getSettings().getRootSettings().getIndentOptions(StdFileTypes.JAVA).CONTINUATION_INDENT_SIZE = 2;
-    getSettings().getRootSettings().RIGHT_MARGIN = 37;
+    getSettings().RIGHT_MARGIN = 37;
     getSettings().ALIGN_MULTILINE_EXTENDS_LIST = true;
 
     getSettings().EXTENDS_KEYWORD_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
@@ -1084,7 +1082,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
 
   public void testLBrace() throws Exception {
     getSettings().METHOD_BRACE_STYLE = CommonCodeStyleSettings.END_OF_LINE;
-    getSettings().getRootSettings().RIGHT_MARGIN = 14;
+    getSettings().RIGHT_MARGIN = 14;
     doTextTest("class Foo {\n" + "    void foo() {\n" + "        \n" + "    }\n" + "}",
                "class Foo {\n" + "    void foo() {\n" + "\n" + "    }\n" + "}");
   }
@@ -1197,7 +1195,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   public void testArrayInitializerWrapping() throws Exception {
     getSettings().ARRAY_INITIALIZER_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     getSettings().ALIGN_MULTILINE_ARRAY_INITIALIZER_EXPRESSION = false;
-    getSettings().getRootSettings().RIGHT_MARGIN = 37;
+    getSettings().RIGHT_MARGIN = 37;
 
     doTextTest("class Foo{\n" +
                "    public int[] i = new int[]{1,2,3,4,5,6,7,8,9};\n" +
@@ -1540,7 +1538,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
     getSettings().KEEP_CONTROL_STATEMENT_IN_ONE_LINE = true;
     getSettings().KEEP_SIMPLE_METHODS_IN_ONE_LINE = true;
     getSettings().ELSE_ON_NEW_LINE = false;
-    getSettings().getRootSettings().RIGHT_MARGIN = 110;
+    getSettings().RIGHT_MARGIN = 110;
     getSettings().KEEP_LINE_BREAKS = false;
     doTextTest("class Foo {\n" +
                "    void foo() {\n" +
@@ -1701,7 +1699,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
 
   public void testDoNotWrapLBrace() throws IncorrectOperationException {
     getSettings().BRACE_STYLE = CommonCodeStyleSettings.END_OF_LINE;
-    getSettings().getRootSettings().RIGHT_MARGIN = 66;
+    getSettings().RIGHT_MARGIN = 66;
     doTextTest("public class Test {\n" +
                "    void foo(){\n" +
                "        if (veryLongIdentifier1 == 1 && veryLongIdentifier2 == 2) {\n" +
@@ -1721,7 +1719,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
     getSettings().ARRAY_INITIALIZER_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     getSettings().ARRAY_INITIALIZER_LBRACE_ON_NEXT_LINE = true;
     getSettings().ARRAY_INITIALIZER_RBRACE_ON_NEXT_LINE = true;
-    getSettings().getRootSettings().RIGHT_MARGIN = 40;
+    getSettings().RIGHT_MARGIN = 40;
     doTextTest("class Foo {\n" + "    int[] a = new int[]{1,2,0x0052,0x0053,0x0054,0x0054,0x0054};\n" + "}", "class Foo {\n" +
                                                                                                              "    int[] a = new int[]{\n" +
                                                                                                              "            1, 2, 0x0052, 0x0053,\n" +
@@ -1771,7 +1769,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   }
 
   public void testWrapExtendsList() throws Exception {
-    getSettings().getRootSettings().RIGHT_MARGIN = 50;
+    getSettings().RIGHT_MARGIN = 50;
     getSettings().EXTENDS_LIST_WRAP = CommonCodeStyleSettings.WRAP_ON_EVERY_ITEM;
     getSettings().EXTENDS_KEYWORD_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
 
@@ -1782,7 +1780,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   }
 
   public void testWrapLongExpression() throws Exception {
-    getSettings().getRootSettings().RIGHT_MARGIN = 80;
+    getSettings().RIGHT_MARGIN = 80;
     getSettings().BINARY_OPERATION_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     getSettings().ALIGN_MULTILINE_BINARY_OPERATION = true;
     doTextTest("class Foo {\n" +
@@ -1800,7 +1798,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   }
 
   public void testDoNotWrapCallChainIfParametersWrapped() throws Exception {
-    getSettings().getRootSettings().RIGHT_MARGIN = 87;
+    getSettings().RIGHT_MARGIN = 87;
     getSettings().CALL_PARAMETERS_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     getSettings().METHOD_CALL_CHAIN_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     getSettings().ALIGN_MULTILINE_PARAMETERS_IN_CALLS = true;
@@ -1834,7 +1832,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   }
 
   public void testRightMargin_2() throws Exception {
-    getSettings().getRootSettings().RIGHT_MARGIN = 65;
+    getSettings().RIGHT_MARGIN = 65;
     getSettings().ASSIGNMENT_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     getSettings().PLACE_ASSIGNMENT_SIGN_ON_NEXT_LINE = true;
     getSettings().KEEP_LINE_BREAKS = false;
@@ -1847,7 +1845,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   }
 
   public void testRightMargin_3() throws Exception {
-    getSettings().getRootSettings().RIGHT_MARGIN = 65;
+    getSettings().RIGHT_MARGIN = 65;
     getSettings().ASSIGNMENT_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     getSettings().PLACE_ASSIGNMENT_SIGN_ON_NEXT_LINE = false;
     getSettings().KEEP_LINE_BREAKS = false;
@@ -1905,12 +1903,12 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   public void testWrapParamsOnEveryItem() throws Exception {
     CodeStyleSettings codeStyleSettings = CodeStyleSettingsManager.getSettings(getProject());
 
-    int oldMargin = codeStyleSettings.RIGHT_MARGIN;
+    int oldMargin = codeStyleSettings.getCommonSettings(JavaLanguage.INSTANCE).RIGHT_MARGIN;
     boolean oldKeep = codeStyleSettings.KEEP_LINE_BREAKS;
     int oldWrap = codeStyleSettings.METHOD_PARAMETERS_WRAP;
 
     try {
-      codeStyleSettings.RIGHT_MARGIN = 80;
+      codeStyleSettings.setRightMargin(JavaLanguage.INSTANCE, 80);
       codeStyleSettings.KEEP_LINE_BREAKS = false;
       codeStyleSettings.METHOD_PARAMETERS_WRAP = CommonCodeStyleSettings.WRAP_ON_EVERY_ITEM;
 
@@ -1935,7 +1933,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
         "}");
     }
     finally {
-      codeStyleSettings.RIGHT_MARGIN = oldMargin;
+      codeStyleSettings.setRightMargin(JavaLanguage.INSTANCE, oldMargin);
       codeStyleSettings.KEEP_LINE_BREAKS = oldKeep;
       codeStyleSettings.METHOD_PARAMETERS_WRAP = oldWrap;
     }
@@ -1945,10 +1943,10 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
   public void testCommentAfterDeclaration() throws Exception {
     CodeStyleSettings codeStyleSettings = CodeStyleSettingsManager.getSettings(getProject());
 
-    int oldMargin = codeStyleSettings.RIGHT_MARGIN;
+    int oldMargin = codeStyleSettings.getDefaultRightMargin();
 
     try {
-      codeStyleSettings.RIGHT_MARGIN = 20;
+      codeStyleSettings.setDefaultRightMargin(20);
       codeStyleSettings.ASSIGNMENT_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
       doMethodTest(
         "int i=0; //comment comment",
@@ -1958,7 +1956,7 @@ public class JavaFormatterTest extends AbstractJavaFormatterTest {
 
     }
     finally {
-      codeStyleSettings.RIGHT_MARGIN = oldMargin;
+      codeStyleSettings.setDefaultRightMargin(oldMargin);
     }
   }
 
@@ -2109,7 +2107,7 @@ public void testSCR260() throws Exception {
 
   public void testSCR479() throws Exception {
     final CommonCodeStyleSettings settings = getSettings();
-    settings.getRootSettings().RIGHT_MARGIN = 80;
+    settings.RIGHT_MARGIN = 80;
     settings.TERNARY_OPERATION_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     doTextTest("public class Foo {\n" +
                "    public static void main(String[] args) {\n" +
@@ -2193,7 +2191,7 @@ public void testSCR260() throws Exception {
   }
 
   public void test1607() throws Exception {
-    getSettings().getRootSettings().RIGHT_MARGIN = 30;
+    getSettings().RIGHT_MARGIN = 30;
     getSettings().METHOD_BRACE_STYLE = CommonCodeStyleSettings.NEXT_LINE;
     getSettings().KEEP_SIMPLE_METHODS_IN_ONE_LINE = true;
     getSettings().ALIGN_MULTILINE_PARAMETERS = true;
@@ -2274,7 +2272,7 @@ public void testSCR260() throws Exception {
     getSettings().METHOD_CALL_CHAIN_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     getSettings().CALL_PARAMETERS_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     getSettings().ALIGN_MULTILINE_PARAMETERS_IN_CALLS = true;
-    getSettings().getRootSettings().RIGHT_MARGIN = 80;
+    getSettings().RIGHT_MARGIN = 80;
 
     getSettings().PREFER_PARAMETERS_WRAP = true;
 
@@ -2395,7 +2393,7 @@ public void testSCR260() throws Exception {
   }
 
   public void test1980() throws Exception {
-    getSettings().getRootSettings().RIGHT_MARGIN = 144;
+    getSettings().RIGHT_MARGIN = 144;
     getSettings().TERNARY_OPERATION_WRAP = CommonCodeStyleSettings.WRAP_ON_EVERY_ITEM;
     getSettings().METHOD_CALL_CHAIN_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     getSettings().ALIGN_MULTILINE_TERNARY_OPERATION = true;
@@ -2526,7 +2524,7 @@ public void testSCR260() throws Exception {
     public void testSCRIDEA_4783() throws IncorrectOperationException {
     getSettings().ASSIGNMENT_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
     getSettings().METHOD_CALL_CHAIN_WRAP = CommonCodeStyleSettings.WRAP_AS_NEEDED;
-    getSettings().getRootSettings().RIGHT_MARGIN = 80;
+    getSettings().RIGHT_MARGIN = 80;
 
     doTextTest("class Foo{\n" +
                "    void foo() {\n" +
@@ -2658,7 +2656,7 @@ public void testSCR260() throws Exception {
       doTextTest("class Foo {\n" + "    void foo() {\n" + "        while(true) foo();\n" + "    }\n" + "}",
                  "class Foo {\n" + "    void foo() {\n" + "        while (true) foo();\n" + "    }\n" + "}");
 
-      getSettings().getRootSettings().RIGHT_MARGIN = 17;
+      getSettings().RIGHT_MARGIN = 17;
 
       doTextTest("class Foo {\n" + "    void foo() {\n" + "        if (a) foo();\n" + "        else bar();\n" + "    }\n" + "}",
                  "class Foo {\n" +
@@ -2670,7 +2668,7 @@ public void testSCR260() throws Exception {
                  "    }\n" +
                  "}");
 
-      getSettings().getRootSettings().RIGHT_MARGIN = 30;
+      getSettings().RIGHT_MARGIN = 30;
 
       doTextTest("class Foo {\n" + "    void foo() {\n" + "        for (int i = 0; i < 10; i++) foo();\n" + "    }\n" + "}",
                  "class Foo {\n" +
@@ -2680,12 +2678,12 @@ public void testSCR260() throws Exception {
                  "    }\n" +
                  "}");
 
-      getSettings().getRootSettings().RIGHT_MARGIN = 32;
+      getSettings().RIGHT_MARGIN = 32;
       doTextTest("class Foo {\n" + "    void foo() {\n" + "        for (int var : vars) foo();\n" + "    }\n" + "}",
                  "class Foo {\n" + "    void foo() {\n" + "        for (int var : vars)\n" + "            foo();\n" + "    }\n" + "}");
 
 
-      getSettings().getRootSettings().RIGHT_MARGIN = 12;
+      getSettings().RIGHT_MARGIN = 12;
       doTextTest("class Foo {\n" + "    void foo() {\n" + "        do foo(); while (true);\n" + "    }\n" + "}", "class Foo {\n" +
                                                                                                                  "    void foo() {\n" +
                                                                                                                  "        do\n" +
@@ -2694,7 +2692,7 @@ public void testSCR260() throws Exception {
                                                                                                                  "    }\n" +
                                                                                                                  "}");
 
-      getSettings().getRootSettings().RIGHT_MARGIN = 23;
+      getSettings().RIGHT_MARGIN = 23;
 
       doTextTest("class Foo {\n" + "    void foo() {\n" + "        while(true) foo();\n" + "    }\n" + "}",
                  "class Foo {\n" + "    void foo() {\n" + "        while (true)\n" + "            foo();\n" + "    }\n" + "}");
@@ -2810,7 +2808,7 @@ public void testSCR260() throws Exception {
 
   public void testIDEADEV_12836() throws IncorrectOperationException {
     getSettings().SPECIAL_ELSE_IF_TREATMENT = true;
-    getSettings().getRootSettings().RIGHT_MARGIN = 80;
+    getSettings().RIGHT_MARGIN = 80;
     doTextTest("class Foo {\n" +
                "void foo(){\n" +
                "if (true){\n" +
@@ -2889,7 +2887,7 @@ public void testSCR260() throws Exception {
   public void testIDEADEV_23551() throws IncorrectOperationException {
     getSettings().BINARY_OPERATION_WRAP = CommonCodeStyleSettings.WRAP_ON_EVERY_ITEM;
 
-    getSettings().getRootSettings().RIGHT_MARGIN = 60;
+    getSettings().RIGHT_MARGIN = 60;
     doTextTest("public class Wrapping {\n" +
                "public static void sample() {\n" +
                "System.out.println(\".\" + File.separator + \"..\" + File.separator + \"some-directory-name\" + File.separator + \"more-file-name\");\n" +
@@ -3007,6 +3005,7 @@ public void testSCR260() throws Exception {
 
   public void testFormatterOnOffTags() throws Exception {
     getSettings().getRootSettings().FORMATTER_TAGS_ENABLED = true;
+    getSettings().IF_BRACE_FORCE = CommonCodeStyleSettings.FORCE_BRACES_ALWAYS;
     doTest();
   }
 
@@ -3017,5 +3016,37 @@ public void testSCR260() throws Exception {
     settings.FORMATTER_OFF_TAG = "not.*format";
     settings.FORMATTER_ON_TAG = "end.*fragment";
     doTest();
+  }
+
+  public void testDoNotIndentNotSelectedStatement_AfterSelectedOne() {
+    myTextRange = new TextRange(0, 73);
+    doTextTest(
+      "class Test {\n" +
+      "    public static void main(String[] args) {\n" +
+      "    int a = 3;\n" +
+      "    System.out.println(\"AAA\");\n" +
+      "    }\n" +
+      "}",
+      "class Test {\n" +
+      "    public static void main(String[] args) {\n" +
+      "        int a = 3;\n" +
+      "    System.out.println(\"AAA\");\n" +
+      "    }\n" +
+      "}"
+    );
+
+    myTextRange = new TextRange(0, 67);
+    doTextTest(
+      "    import java.lang.Override;\n" +
+      "    import java.lang.Exception;\n" +
+      "    \n" +
+      "    class Foo {\n" +
+      "}",
+      "import java.lang.Override;\n" +
+      "import java.lang.Exception;\n" +
+      "    \n" +
+      "    class Foo {\n" +
+      "}"
+    );
   }
 }

@@ -20,6 +20,7 @@ import com.intellij.formatting.*;
 import com.intellij.ide.DataManager;
 import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.lang.ASTNode;
+import com.intellij.lang.Language;
 import com.intellij.lang.LanguageFormatting;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -39,10 +40,7 @@ import com.intellij.openapi.util.Segment;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiDocumentManager;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiLanguageInjectionHost;
+import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
@@ -80,10 +78,12 @@ public class CodeFormatterFacade {
 
   private final CodeStyleSettings mySettings;
   private final FormatterTagHandler myTagHandler;
+  private final int myRightMargin;
 
-  public CodeFormatterFacade(CodeStyleSettings settings) {
+  public CodeFormatterFacade(CodeStyleSettings settings, @Nullable Language language) {
     mySettings = settings;
     myTagHandler = new FormatterTagHandler(settings);
+    myRightMargin = mySettings.getRightMargin(language);
   }
 
   public ASTNode processElement(ASTNode element) {
@@ -174,13 +174,16 @@ public class CodeFormatterFacade {
 
 
     final FormattingModelBuilder builder = LanguageFormatting.INSTANCE.forContext(file);
+    final Language contextLanguage = file.getLanguage();
 
     if (builder != null) {
       if (file.getTextLength() > 0) {
         LOG.assertTrue(document != null);
         try {
-          final PsiElement startElement = file.findElementAt(textRanges.get(0).getTextRange().getStartOffset());
-          final PsiElement endElement = file.findElementAt(textRanges.get(textRanges.size() - 1).getTextRange().getEndOffset() - 1);
+          final FileViewProvider viewProvider = file.getViewProvider();
+          final PsiElement startElement = viewProvider.findElementAt(textRanges.get(0).getTextRange().getStartOffset(), contextLanguage);
+          final PsiElement endElement =
+            viewProvider.findElementAt(textRanges.get(textRanges.size() - 1).getTextRange().getEndOffset() - 1, contextLanguage);
           final PsiElement commonParent = startElement != null && endElement != null ? PsiTreeUtil.findCommonParent(startElement, endElement) : null;
           ASTNode node = null;
           if (commonParent != null) {
@@ -258,7 +261,7 @@ public class CodeFormatterFacade {
   private TextRange preprocess(@NotNull final ASTNode node, @NotNull TextRange range) {
     TextRange result = range;
     PsiElement psi = node.getPsi();
-    if (!psi.isValid()) {      
+    if (!psi.isValid()) {
       return result;
     }
 
@@ -388,14 +391,15 @@ public class CodeFormatterFacade {
 
 
   /**
-   * Inspects all lines of the given document and wraps all of them that exceed {@link CodeStyleSettings#RIGHT_MARGIN right margin}.
+   * Inspects all lines of the given document and wraps all of them that exceed {@link CodeStyleSettings#getRightMargin(com.intellij.lang.Language)}
+   * right margin}.
    * <p/>
    * I.e. the algorithm is to do the following for every line:
    * <p/>
    * <pre>
    * <ol>
    *   <li>
-   *      Check if the line exceeds {@link CodeStyleSettings#RIGHT_MARGIN right margin}. Go to the next line in the case of
+   *      Check if the line exceeds {@link CodeStyleSettings#getRightMargin(com.intellij.lang.Language)}  right margin}. Go to the next line in the case of
    *      negative answer;
    *   </li>
    *   <li>Determine line wrap position; </li>
@@ -636,8 +640,8 @@ public class CodeFormatterFacade {
   }
 
   private int wrapPositionForTextWithoutTabs(int startLineOffset, int endLineOffset, int targetRangeEndOffset) {
-    if (Math.min(endLineOffset, targetRangeEndOffset) - startLineOffset > mySettings.RIGHT_MARGIN) {
-      return startLineOffset + mySettings.RIGHT_MARGIN - FormatConstants.RESERVED_LINE_WRAP_WIDTH_IN_COLUMNS;
+    if (Math.min(endLineOffset, targetRangeEndOffset) - startLineOffset > myRightMargin) {
+      return startLineOffset + myRightMargin - FormatConstants.RESERVED_LINE_WRAP_WIDTH_IN_COLUMNS;
     }
     return -1;
   }
@@ -658,13 +662,13 @@ public class CodeFormatterFacade {
         case '\t': symbolWidth = tabSize - (width % tabSize); break;
         default: symbolWidth = 1;
       }
-      if (width + symbolWidth + FormatConstants.RESERVED_LINE_WRAP_WIDTH_IN_COLUMNS >= mySettings.RIGHT_MARGIN
+      if (width + symbolWidth + FormatConstants.RESERVED_LINE_WRAP_WIDTH_IN_COLUMNS >= myRightMargin
           && (Math.min(endLineOffset, targetRangeEndOffset) - i) >= FormatConstants.RESERVED_LINE_WRAP_WIDTH_IN_COLUMNS)
       {
         // Remember preferred position.
         result = i - 1;
       }
-      if (width + symbolWidth >= mySettings.RIGHT_MARGIN) {
+      if (width + symbolWidth >= myRightMargin) {
         wrapLine = true;
         break;
       }
@@ -699,12 +703,12 @@ public class CodeFormatterFacade {
           break;
         default: newX = x + EditorUtil.charWidth(c, Font.PLAIN, editor); symbolWidth = 1;
       }
-      if (width + symbolWidth + FormatConstants.RESERVED_LINE_WRAP_WIDTH_IN_COLUMNS >= mySettings.RIGHT_MARGIN
+      if (width + symbolWidth + FormatConstants.RESERVED_LINE_WRAP_WIDTH_IN_COLUMNS >= myRightMargin
           && (Math.min(endLineOffset, targetRangeEndOffset) - i) >= FormatConstants.RESERVED_LINE_WRAP_WIDTH_IN_COLUMNS)
       {
         result = i - 1;
       }
-      if (width + symbolWidth >= mySettings.RIGHT_MARGIN) {
+      if (width + symbolWidth >= myRightMargin) {
         wrapLine = true;
         break;
       }

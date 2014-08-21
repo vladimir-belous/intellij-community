@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -70,7 +70,7 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     myComponent.myLafComboBox.setModel(new DefaultComboBoxModel(LafManager.getInstance().getInstalledLookAndFeels()));
     myComponent.myLafComboBox.setRenderer(new LafComboBoxRenderer());
 
-    Dictionary<Integer, JLabel> delayDictionary = new Hashtable<Integer, JLabel>();
+    Dictionary<Integer, JComponent> delayDictionary = new Hashtable<Integer, JComponent>();
     delayDictionary.put(new Integer(0), new JLabel("0"));
     delayDictionary.put(new Integer(1200), new JLabel("1200"));
     //delayDictionary.put(new Integer(2400), new JLabel("2400"));
@@ -94,7 +94,7 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
 
     myComponent.myAlphaModeRatioSlider.setSize(100, 50);
     @SuppressWarnings({"UseOfObsoleteCollectionType"})
-    Dictionary<Integer, JLabel> dictionary = new Hashtable<Integer, JLabel>();
+    Dictionary<Integer, JComponent> dictionary = new Hashtable<Integer, JComponent>();
     dictionary.put(new Integer(0), new JLabel("0%"));
     dictionary.put(new Integer(50), new JLabel("50%"));
     dictionary.put(new Integer(100), new JLabel("100%"));
@@ -154,6 +154,7 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     settings.OVERRIDE_NONIDEA_LAF_FONTS = myComponent.myOverrideLAFFonts.isSelected();
     settings.MOVE_MOUSE_ON_DEFAULT_BUTTON = myComponent.myMoveMouseOnDefaultButtonCheckBox.isSelected();
     settings.HIDE_NAVIGATION_ON_FOCUS_LOSS = myComponent.myHideNavigationPopupsCheckBox.isSelected();
+    settings.DND_WITH_PRESSED_ALT_ONLY = myComponent.myAltDNDCheckBox.isSelected();
 
     update |= settings.DISABLE_MNEMONICS != myComponent.myDisableMnemonics.isSelected();
     settings.DISABLE_MNEMONICS = myComponent.myDisableMnemonics.isSelected();
@@ -270,6 +271,7 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     myComponent.myHideIconsInQuickNavigation.setSelected(settings.SHOW_ICONS_IN_QUICK_NAVIGATION);
     myComponent.myMoveMouseOnDefaultButtonCheckBox.setSelected(settings.MOVE_MOUSE_ON_DEFAULT_BUTTON);
     myComponent.myHideNavigationPopupsCheckBox.setSelected(settings.HIDE_NAVIGATION_ON_FOCUS_LOSS);
+    myComponent.myAltDNDCheckBox.setSelected(settings.DND_WITH_PRESSED_ALT_ONLY);
     myComponent.myLafComboBox.setSelectedItem(LafManager.getInstance().getCurrentLookAndFeel());
     myComponent.myOverrideLAFFonts.setSelected(settings.OVERRIDE_NONIDEA_LAF_FONTS);
     myComponent.myDisableMnemonics.setSelected(settings.DISABLE_MNEMONICS);
@@ -330,6 +332,7 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
 
     isModified |= myComponent.myMoveMouseOnDefaultButtonCheckBox.isSelected() != settings.MOVE_MOUSE_ON_DEFAULT_BUTTON;
     isModified |= myComponent.myHideNavigationPopupsCheckBox.isSelected() != settings.HIDE_NAVIGATION_ON_FOCUS_LOSS;
+    isModified |= myComponent.myAltDNDCheckBox.isSelected() != settings.DND_WITH_PRESSED_ALT_ONLY;
     isModified |= !Comparing.equal(myComponent.myLafComboBox.getSelectedItem(), LafManager.getInstance().getCurrentLookAndFeel());
     if (WindowManagerEx.getInstanceEx().isAlphaModeSupported()) {
       isModified |= myComponent.myEnableAlphaModeCheckBox.isSelected() != settings.ENABLE_ALPHA_MODE;
@@ -385,6 +388,7 @@ public class AppearanceConfigurable extends BaseConfigurable implements Searchab
     private JCheckBox myDisableMnemonics;
     private JCheckBox myDisableMnemonicInControlsCheckBox;
     private JCheckBox myHideNavigationPopupsCheckBox;
+    private JCheckBox myAltDNDCheckBox;
     private JCheckBox myAllowMergeButtons;
     private JBCheckBox myUseSmallLabelsOnTabs;
     private JBCheckBox myWidescreenLayoutCheckBox;

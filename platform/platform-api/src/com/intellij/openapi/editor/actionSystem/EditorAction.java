@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,11 +26,14 @@ import org.jetbrains.annotations.Nullable;
 
 import java.awt.event.KeyEvent;
 
+import static com.intellij.openapi.actionSystem.CommonDataKeys.EDITOR;
+import static com.intellij.openapi.actionSystem.CommonDataKeys.PROJECT;
+
 public abstract class EditorAction extends AnAction implements DumbAware {
   private EditorActionHandler myHandler;
   private boolean myHandlersLoaded;
 
-  public EditorActionHandler getHandler() {
+  public final EditorActionHandler getHandler() {
     ensureHandlersLoaded();
     return myHandler;
   }
@@ -40,10 +43,11 @@ public abstract class EditorAction extends AnAction implements DumbAware {
     setEnabledInModalContext(true);
   }
 
-  public final EditorActionHandler setupHandler(EditorActionHandler newHandler) {
+  public final EditorActionHandler setupHandler(@NotNull EditorActionHandler newHandler) {
     ensureHandlersLoaded();
     EditorActionHandler tmp = myHandler;
     myHandler = newHandler;
+    myHandler.setWorksInInjected(isInInjectedContext());
     return tmp;
   }
 
@@ -51,13 +55,24 @@ public abstract class EditorAction extends AnAction implements DumbAware {
     if (!myHandlersLoaded) {
       myHandlersLoaded = true;
       final String id = ActionManager.getInstance().getId(this);
-      for (int i = Extensions.getExtensions(EditorActionHandlerBean.EP_NAME).length - 1; i >= 0; i--) {
-        final EditorActionHandlerBean handlerBean = Extensions.getExtensions(EditorActionHandlerBean.EP_NAME)[i];
+      EditorActionHandlerBean[] extensions = Extensions.getExtensions(EditorActionHandlerBean.EP_NAME);
+      for (int i = extensions.length - 1; i >= 0; i--) {
+        final EditorActionHandlerBean handlerBean = extensions[i];
         if (handlerBean.action.equals(id)) {
           myHandler = handlerBean.getHandler(myHandler);
+          myHandler.setWorksInInjected(isInInjectedContext());
         }
       }
     }
+  }
+
+  @Override
+  public void setInjectedContext(boolean worksInInjected) {
+    super.setInjectedContext(worksInInjected);
+    // we assume that this method is called in constructor at the point
+    // where the chain of handlers is not initialized yet
+    // and it's enough to pass the flag to the default handler only
+    myHandler.setWorksInInjected(isInInjectedContext());
   }
 
   @Override
@@ -68,8 +83,8 @@ public abstract class EditorAction extends AnAction implements DumbAware {
   }
 
   @Nullable
-  protected Editor getEditor(final DataContext dataContext) {
-    return CommonDataKeys.EDITOR.getData(dataContext);
+  protected Editor getEditor(@NotNull DataContext dataContext) {
+    return EDITOR.getData(dataContext);
   }
 
   public final void actionPerformed(final Editor editor, @NotNull final DataContext dataContext) {
@@ -79,7 +94,7 @@ public abstract class EditorAction extends AnAction implements DumbAware {
     Runnable command = new Runnable() {
       @Override
       public void run() {
-        handler.execute(editor, getProjectAwareDataContext(editor, dataContext));
+        handler.execute(editor, null, getProjectAwareDataContext(editor, dataContext));
       }
     };
 
@@ -99,7 +114,7 @@ public abstract class EditorAction extends AnAction implements DumbAware {
   }
 
   public void update(Editor editor, Presentation presentation, DataContext dataContext) {
-    presentation.setEnabled(getHandler().isEnabled(editor, dataContext));
+    presentation.setEnabled(getHandler().isEnabled(editor, null, dataContext));
   }
 
   public void updateForKeyboardAccess(Editor editor, Presentation presentation, DataContext dataContext) {
@@ -125,14 +140,14 @@ public abstract class EditorAction extends AnAction implements DumbAware {
   }
 
   private static DataContext getProjectAwareDataContext(final Editor editor, @NotNull final DataContext original) {
-    if (CommonDataKeys.PROJECT.getData(original) == editor.getProject()) {
-      return original;
+    if (PROJECT.getData(original) == editor.getProject()) {
+      return new DialogAwareDataContext(original);
     }
 
     return new DataContext() {
       @Override
       public Object getData(String dataId) {
-        if (CommonDataKeys.PROJECT.is(dataId)) {
+        if (PROJECT.is(dataId)) {
           return editor.getProject();
         }
         return original.getData(dataId);

@@ -22,6 +22,7 @@ import com.intellij.execution.configurations.RunProfileState;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author spleaner
@@ -29,16 +30,16 @@ import com.intellij.openapi.project.Project;
 public abstract class DefaultProgramRunner extends GenericProgramRunner {
 
   @Override
-  protected RunContentDescriptor doExecute(final Project project,
-                                           final RunProfileState state,
+  protected RunContentDescriptor doExecute(@NotNull final Project project,
+                                           @NotNull final RunProfileState state,
                                            final RunContentDescriptor contentToReuse,
-                                           final ExecutionEnvironment env) throws ExecutionException {
+                                           @NotNull final ExecutionEnvironment env) throws ExecutionException {
     FileDocumentManager.getInstance().saveAllDocuments();
     ExecutionResult executionResult = state.execute(env.getExecutor(), this);
-    if (executionResult == null) return null;
-
-    final RunContentBuilder contentBuilder = new RunContentBuilder(this, executionResult, env);
-    return contentBuilder.showRunContent(contentToReuse);
+    if (executionResult == null) {
+      return null;
+    }
+    return new RunContentBuilder(executionResult, env).showRunContent(contentToReuse);
   }
 
 }

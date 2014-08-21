@@ -10,7 +10,6 @@ import os
 import sys
 
 from pydevd_constants import USE_LIB_COPY
-from pydevd_constants import IS_JYTHON
 
 if USE_LIB_COPY:
     import _pydev_threading as threading
@@ -23,18 +22,7 @@ fix_getpass.fixGetpass()
 
 import pydevd_vars
 
-try:
-    from pydevd_exec import Exec
-except:
-    from pydevd_exec2 import Exec
-
-try:
-    if USE_LIB_COPY:
-        import _pydev_Queue as _queue
-    else:
-        import Queue as _queue
-except:
-    import queue as _queue
+from pydev_imports import Exec, _queue
 
 try:
     import __builtin__
@@ -50,7 +38,7 @@ except NameError: # version < 2.3 -- didn't have the True/False builtins
     setattr(__builtin__, 'True', 1) #Python 3.0 does not accept __builtin__.True = 1 in its syntax
     setattr(__builtin__, 'False', 0)
 
-from pydev_console_utils import BaseInterpreterInterface
+from pydev_console_utils import BaseInterpreterInterface, BaseStdIn
 from pydev_console_utils import CodeFragment
 
 IS_PYTHON_3K = False
@@ -62,20 +50,9 @@ except:
     #That's OK, not all versions of python have sys.version_info
     pass
 
-try:
-    try:
-        if USE_LIB_COPY:
-            import _pydev_xmlrpclib as xmlrpclib
-        else:
-            import xmlrpclib
-    except ImportError:
-        import xmlrpc.client as xmlrpclib
-except ImportError:
-    import _pydev_xmlrpclib as xmlrpclib
-
 
 class Command:
-    def __init__(self, interpreter, code_fragment, buffer):
+    def __init__(self, interpreter, code_fragment):
         """
         :type code_fragment: CodeFragment
         :type interpreter: InteractiveConsole
@@ -83,24 +60,19 @@ class Command:
         self.interpreter = interpreter
         self.code_fragment = code_fragment
         self.more = None
-        self.buffer = buffer
 
     @staticmethod
     def symbol_for_fragment(code_fragment):
-        if IS_JYTHON or code_fragment.is_single_line: 
+        if code_fragment.is_single_line:
             symbol = 'single'
         else:
             symbol = 'exec' # Jython doesn't support this
         return symbol
 
     def run(self):
-        if self.buffer is None:
-            text = self.code_fragment.text
-            symbol = self.symbol_for_fragment(self.code_fragment)
-        else:
-            text = self.buffer.text
-            symbol = self.symbol_for_fragment(self.buffer)
-            
+        text = self.code_fragment.text
+        symbol = self.symbol_for_fragment(self.code_fragment)
+
         self.more = self.interpreter.runsource(text, '<input>', symbol)
 
 try:
@@ -133,7 +105,7 @@ class InterpreterInterface(BaseInterpreterInterface):
 
 
     def doAddExec(self, codeFragment):
-        command = Command(self.interpreter, codeFragment, self.buffer)
+        command = Command(self.interpreter, codeFragment)
         command.run()
         return command.more
 
@@ -144,7 +116,7 @@ class InterpreterInterface(BaseInterpreterInterface):
 
     def getCompletions(self, text, act_tok):
         try:
-            from _completer import Completer
+            from _pydev_completer import Completer
 
             completer = Completer(self.namespace, None)
             return completer.complete(act_tok)
@@ -153,7 +125,7 @@ class InterpreterInterface(BaseInterpreterInterface):
 
             traceback.print_exc()
             return []
-        
+
     def close(self):
         sys.exit(0)
 
@@ -161,18 +133,63 @@ class InterpreterInterface(BaseInterpreterInterface):
         return 'PyDev console: starting.\n'
 
 
+class _ProcessExecQueueHelper:
+    _debug_hook = None
+    _return_control_osc = False
+
+def set_debug_hook(debug_hook):
+    _ProcessExecQueueHelper._debug_hook = debug_hook
+
+
 def process_exec_queue(interpreter):
+
+    from pydev_ipython.inputhook import get_inputhook, set_return_control_callback
+
+    def return_control():
+        ''' A function that the inputhooks can call (via inputhook.stdin_ready()) to find
+            out if they should cede control and return '''
+        if _ProcessExecQueueHelper._debug_hook:
+            # Some of the input hooks check return control without doing
+            # a single operation, so we don't return True on every
+            # call when the debug hook is in place to allow the GUI to run
+            # XXX: Eventually the inputhook code will have diverged enough
+            # from the IPython source that it will be worthwhile rewriting
+            # it rather than pretending to maintain the old API
+            _ProcessExecQueueHelper._return_control_osc = not _ProcessExecQueueHelper._return_control_osc
+            if _ProcessExecQueueHelper._return_control_osc:
+                return True
+
+        if not interpreter.exec_queue.empty():
+            return True
+        return False
+
+    set_return_control_callback(return_control)
+
     while 1:
+        # Running the request may have changed the inputhook in use
+        inputhook = get_inputhook()
+
+        if _ProcessExecQueueHelper._debug_hook:
+            _ProcessExecQueueHelper._debug_hook()
+
+        if inputhook:
+            try:
+                # Note: it'll block here until return_control returns True.
+                inputhook()
+            except:
+                import traceback;traceback.print_exc()
         try:
             try:
-                codeFragment = interpreter.exec_queue.get(block=True, timeout=0.05)
+                code_fragment = interpreter.exec_queue.get(block=True, timeout=1/20.) # 20 calls/second
             except _queue.Empty:
                 continue
 
-            more = interpreter.addExec(codeFragment)
-            
-            if not more:     
-                interpreter.buffer = None
+            if callable(code_fragment):
+                # It can be a callable (i.e.: something that must run in the main
+                # thread can be put in the queue for later execution).
+                code_fragment()
+            else:
+                more = interpreter.addExec(code_fragment)
         except KeyboardInterrupt:
             interpreter.buffer = None
             continue
@@ -184,26 +201,29 @@ def process_exec_queue(interpreter):
             exit()
 
 
+if 'IPYTHONENABLE' in os.environ:
+    IPYTHON = os.environ['IPYTHONENABLE'] == 'True'
+else:
+    IPYTHON = True
+
 try:
     try:
         exitfunc = sys.exitfunc
     except AttributeError:
         exitfunc = None
-    from pydev_ipython_console import InterpreterInterface
 
-    IPYTHON = True
-    if exitfunc is not None:
-        sys.exitfunc = exitfunc
-
-    else:
-        try:
-            delattr(sys, 'exitfunc')
-        except:
-            pass
+    if IPYTHON:
+        from pydev_ipython_console import InterpreterInterface
+        if exitfunc is not None:
+            sys.exitfunc = exitfunc
+        else:
+            try:
+                delattr(sys, 'exitfunc')
+            except:
+                pass
 except:
     IPYTHON = False
-    #sys.stderr.write('PyDev console: started.\n')
-    pass #IPython not available, proceed as usual.
+    pass
 
 #=======================================================================================================================
 # _DoExit
@@ -229,16 +249,6 @@ def handshake():
     return "PyCharm"
 
 
-def ipython_editor(interpreter):
-    def editor(file, line):
-        if file is None:
-            file = ""
-        if line is None:
-            line = "-1"
-        interpreter.ipython_editor(file, line)
-
-    return editor
-
 #=======================================================================================================================
 # StartServer
 #=======================================================================================================================
@@ -246,10 +256,11 @@ def start_server(host, port, interpreter):
     if port == 0:
         host = ''
 
-    from pydev_imports import SimpleXMLRPCServer
+    #I.e.: supporting the internal Jython version in PyDev to create a Jython interactive console inside Eclipse.
+    from pydev_imports import SimpleXMLRPCServer as XMLRPCServer  #@Reimport
 
     try:
-        server = SimpleXMLRPCServer((host, port), logRequests=False, allow_none=True)
+        server = XMLRPCServer((host, port), logRequests=False, allow_none=True)
 
     except:
         sys.stderr.write('Error starting server with host: %s, port: %s, client_port: %s\n' % (host, port, client_port))
@@ -265,12 +276,11 @@ def start_server(host, port, interpreter):
     server.register_function(interpreter.close)
     server.register_function(interpreter.interrupt)
     server.register_function(handshake)
+    server.register_function(interpreter.connectToDebugger)
+    server.register_function(interpreter.hello)
 
-    if IPYTHON:
-        try:
-            interpreter.interpreter.ipython.hooks.editor = ipython_editor(interpreter)
-        except:
-            pass
+    # Functions for GUI main loop integration
+    server.register_function(interpreter.enableGui)
 
     if port == 0:
         (h, port) = server.socket.getsockname()
@@ -280,6 +290,7 @@ def start_server(host, port, interpreter):
 
 
     sys.stderr.write(interpreter.get_greeting_msg())
+    sys.stderr.flush()
 
     server.serve_forever()
 
@@ -319,8 +330,9 @@ def get_completions(text, token, globals, locals):
 
     return interpreterInterface.getCompletions(text, token)
 
-def get_frame():
-    return interpreterInterface.getFrame()
+#===============================================================================
+# Debugger integration
+#===============================================================================
 
 def exec_code(code, globals, locals):
     interpreterInterface = get_interpreter()
@@ -337,20 +349,6 @@ def exec_code(code, globals, locals):
     return False
 
 
-def read_line(s):
-    ret = ''
-
-    while True:
-        c = s.recv(1)
-
-        if c == '\n' or c == '':
-            break
-        else:
-            ret += c
-
-    return ret
-
-# Debugger integration
 
 class ConsoleWriter(InteractiveInterpreter):
     skip = 0
@@ -367,8 +365,47 @@ class ConsoleWriter(InteractiveInterpreter):
                 self.skip = 1
             sys.stderr.write(data)
 
+    def showsyntaxerror(self, filename=None):
+        """Display the syntax error that just occurred."""
+        #Override for avoid using sys.excepthook PY-12600
+        type, value, tb = sys.exc_info()
+        sys.last_type = type
+        sys.last_value = value
+        sys.last_traceback = tb
+        if filename and type is SyntaxError:
+            # Work hard to stuff the correct filename in the exception
+            try:
+                msg, (dummy_filename, lineno, offset, line) = value.args
+            except ValueError:
+                # Not the format we expect; leave it alone
+                pass
+            else:
+                # Stuff in the right filename
+                value = SyntaxError(msg, (filename, lineno, offset, line))
+                sys.last_value = value
+        list = traceback.format_exception_only(type, value)
+        sys.stderr.write(''.join(list))
+
+    def showtraceback(self):
+        """Display the exception that just occurred."""
+        #Override for avoid using sys.excepthook PY-12600
+        try:
+            type, value, tb = sys.exc_info()
+            sys.last_type = type
+            sys.last_value = value
+            sys.last_traceback = tb
+            tblist = traceback.extract_tb(tb)
+            del tblist[:1]
+            lines = traceback.format_list(tblist)
+            if lines:
+                lines.insert(0, "Traceback (most recent call last):\n")
+            lines.extend(traceback.format_exception_only(type, value))
+        finally:
+            tblist = tb = None
+        sys.stderr.write(''.join(lines))
+
 def consoleExec(thread_id, frame_id, expression):
-    """returns 'False' in case expression is partialy correct
+    """returns 'False' in case expression is partially correct
     """
     frame = pydevd_vars.findFrame(thread_id, frame_id)
 
@@ -412,9 +449,8 @@ def consoleExec(thread_id, frame_id, expression):
 #=======================================================================================================================
 # main
 #=======================================================================================================================
-
-
 if __name__ == '__main__':
+    sys.stdin = BaseStdIn()
     port, client_port = sys.argv[1:3]
     import pydev_localhost
 

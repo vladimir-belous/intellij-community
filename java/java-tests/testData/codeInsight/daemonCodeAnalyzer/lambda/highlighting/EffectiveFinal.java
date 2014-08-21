@@ -39,7 +39,7 @@ public class XXX {
      void m3(int x, boolean cond) {
          int y;
          if (cond) y = 1;
-         foo(() -> x+<error descr="Variable used in lambda expression should be effectively final">y</error>);
+         foo(() -> x+<error descr="Variable 'y' might not have been initialized">y</error>);
      }
  
      void m4(int x, boolean cond) {
@@ -108,7 +108,7 @@ class ParameterIsEffectivelyFinal {
       new Runnable() {
         @Override
         public void run() {
-          System.out.println(<error descr="Variable 'o' is accessed from within inner class. Needs to be declared final.">o</error>);
+          System.out.println(<error descr="Variable 'o' is accessed from within inner class, needs to be declared final">o</error>);
         }
       }.run();
       return 0;
@@ -126,5 +126,19 @@ class IDEA114737 {
       System.out.println(newList);
       return 0;
     };
+  }
+}
+
+class IDEA128196 {
+  void a() {
+    int value;
+
+    try {
+      value = 1;
+    } catch (Exception e) {
+      return;
+    }
+
+    new Thread(() -> System.out.println(value));
   }
 }

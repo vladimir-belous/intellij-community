@@ -32,7 +32,7 @@ public class PlaceholderCountMatchesArgumentCountInspectionTest extends LightIns
            "class X {\n" +
            "  void foo() {\n" +
            "    Logger logger = LoggerFactory.getLogger(X.class);\n" +
-           "    logger./*'info()' call has fewer arguments (1) than placeholders (2)*/info/**/(\"string {}{}\", 1);\n" +
+           "    logger.info(/*Fewer arguments provided (1) than placeholders specified (2) in 'string {}{}'*/\"string {}{}\"/**/, 1);\n" +
            "  }\n" +
            "}"
     );
@@ -43,7 +43,7 @@ public class PlaceholderCountMatchesArgumentCountInspectionTest extends LightIns
            "class X {\n" +
            "  void foo() {\n" +
            "    Logger logger = LoggerFactory.getLogger(X.class);\n" +
-           "    logger./*'info()' call has more arguments (1) than placeholders (0)*/info/**/(\"string\", 1);\n" +
+           "    logger.info(/*More arguments provided (1) than placeholders specified (0) in 'string'*/\"string\"/**/, 1);\n" +
            "  }\n" +
            "}"
     );
@@ -58,5 +58,64 @@ public class PlaceholderCountMatchesArgumentCountInspectionTest extends LightIns
            "  }\n" +
            "}"
     );
+  }
+
+  public void testMultiCatch() {
+    doTest("import org.slf4j.*;\n" +
+           "class X {\n" +
+           "    private static final Logger logger = LoggerFactory.getLogger( X.class );\n" +
+           "    public void multiCatch() {\n" +
+           "        try {\n" +
+           "            method();\n" +
+           "        } catch ( FirstException|SecondException e ) {\n" +
+           "            logger.info( \"failed with first or second\", e );\n" +
+           "        }\n" +
+           "    }\n" +
+           "    public void method() throws FirstException, SecondException {}\n" +
+           "    public static class FirstException extends Exception { }\n" +
+           "    public static class SecondException extends Exception { }\n" +
+           "}");
+  }
+
+  public void testNoSlf4j() {
+    doTest("class FalsePositiveSLF4J {\n" +
+           "    public void method( DefinitelyNotSLF4J definitelyNotSLF4J ) {\n" +
+           "        definitelyNotSLF4J.info( \"not a trace message\", \"not a trace parameter\" );\n" +
+           "    }\n" +
+           "    public interface DefinitelyNotSLF4J {\n" +
+           "        void info( String firstParameter, Object secondParameter );\n" +
+           "    }\n" +
+           "}");
+  }
+
+  public void testArrayArgument() {
+    doTest("import org.slf4j.*;" +
+           "class X {" +
+           "  Logger LOG = LoggerFactory.getLogger( X.class );" +
+           "  void m(String a, int b, Object c) {" +
+           "    LOG.info(\"schnizzle {} for blurb {} in quark {}\", new Object[] {a, b, c});" +
+           "  }" +
+           "}");
+  }
+
+  public void testUncountableArray() {
+    doTest("import org.slf4j.*;" +
+           "class X {" +
+           "  Logger LOG = LoggerFactory.getLogger( X.class );" +
+           "  void m(Object[] objects) {" +
+           "    LOG.info(\"deep cover {} quantum disstressor {} at light speed {}\", objects);" +
+           "  }" +
+           "}");
+  }
+
+  public void testConstant() {
+    doTest("import org.slf4j.*;" +
+           "class X {" +
+           "  Logger LOG = LoggerFactory.getLogger(X.class);" +
+           "  private static final String message = \"HELLO {}\";" +
+           "  void m() {" +
+           "    LOG.info(/*Fewer arguments provided (0) than placeholders specified (1) in 'HELLO {}'*/message/**/);" +
+           "  }" +
+           "}");
   }
 }

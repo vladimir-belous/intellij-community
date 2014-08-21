@@ -45,6 +45,7 @@ class ShredImpl implements PsiLanguageInjectionHost.Shred {
     assert relevantRangeInHost.isValid();
   }
 
+  @NotNull
   public SmartPsiElementPointer<PsiLanguageInjectionHost> getSmartPointer() {
     return hostElementPointer;
   }
@@ -86,7 +87,7 @@ class ShredImpl implements PsiLanguageInjectionHost.Shred {
   public String toString() {
     PsiLanguageInjectionHost host = getHost();
     return "Shred " + (host == null ? null : host.getTextRange()) + ": " + host +
-           " Inhost range: " + (relevantRangeInHost.isValid() ? "" : "!") +
+           " In host range: " + (relevantRangeInHost.isValid() ? "" : "!") +
            "(" + relevantRangeInHost.getStartOffset() + "," + relevantRangeInHost.getEndOffset() + ");" +
            " PSI range: " + range;
   }

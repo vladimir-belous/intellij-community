@@ -40,21 +40,24 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComponentContainer;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Getter;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.ui.components.JBList;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.UIUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
+import java.awt.event.InputEvent;
+import java.awt.event.MouseEvent;
+import java.util.*;
 import java.util.List;
 
 public class AbstractRerunFailedTestsAction extends AnAction implements AnAction.TransparentUpdate, Disposable {
@@ -66,7 +69,7 @@ public class AbstractRerunFailedTestsAction extends AnAction implements AnAction
   protected ExecutionEnvironment myEnvironment;
   private final JComponent myParent;
 
-
+  @SuppressWarnings("UnusedDeclaration")
   public AbstractRerunFailedTestsAction() {
     //We call this constructor with a little help from reflection.
     myParent = null;
@@ -80,6 +83,7 @@ public class AbstractRerunFailedTestsAction extends AnAction implements AnAction
     registerCustomShortcutSet(getShortcutSet(), myParent);
   }
 
+  @Override
   public void dispose() {
     registry.remove(this);
   }
@@ -124,6 +128,7 @@ public class AbstractRerunFailedTestsAction extends AnAction implements AnAction
     return candidates.get(0);
   }
 
+  @Override
   public final void update(AnActionEvent e) {
     AbstractRerunFailedTestsAction action = findActualAction();
     e.getPresentation().setEnabled(action.isActive(e));
@@ -136,9 +141,9 @@ public class AbstractRerunFailedTestsAction extends AnAction implements AnAction
     TestFrameworkRunningModel model = getModel();
     if (model == null || model.getRoot() == null) return false;
     final List<? extends AbstractTestProxy> myAllTests = model.getRoot().getAllTests();
-    final GlobalSearchScope searchScope = model.getProperties().getScope();
+    final Filter filter = getFailuresFilter();
     for (Object test : myAllTests) {
-      if (getFilter(project, searchScope).shouldAccept((AbstractTestProxy)test)) return true;
+      if (filter.shouldAccept((AbstractTestProxy)test)) return true;
     }
     return false;
   }
@@ -154,26 +159,93 @@ public class AbstractRerunFailedTestsAction extends AnAction implements AnAction
 
   @NotNull
   protected Filter getFilter(Project project, GlobalSearchScope searchScope) {
+    return getFailuresFilter();
+  }
+
+  protected Filter getFailuresFilter() {
     if (TestConsoleProperties.INCLUDE_NON_STARTED_IN_RERUN_FAILED.value(myConsoleProperties)) {
-      return Filter.NOT_PASSED.or(Filter.FAILED_OR_INTERRUPTED);
+      return Filter.NOT_PASSED.and(Filter.IGNORED.not()).or(Filter.FAILED_OR_INTERRUPTED);
     }
     return Filter.FAILED_OR_INTERRUPTED;
   }
 
+  @Override
   public void actionPerformed(AnActionEvent e) {
-    findActualAction().performAction();
+    findActualAction().showPopup(e);
   }
 
-  private void performAction() {
+  private void showPopup(AnActionEvent e) {
     boolean isDebug = myConsoleProperties.isDebug();
     final MyRunProfile profile = getRunProfile();
-    if (profile == null)
+    if (profile == null) {
       return;
-    try {
-      final Executor executor = isDebug ? DefaultDebugExecutor.getDebugExecutorInstance() : DefaultRunExecutor.getRunExecutorInstance();
+    }
+
+    final Executor executor = isDebug ? DefaultDebugExecutor.getDebugExecutorInstance() : DefaultRunExecutor.getRunExecutorInstance();
+
+    final InputEvent event = e.getInputEvent();
+    if (!(event instanceof MouseEvent) || !event.isShiftDown()) {
       final ProgramRunner runner = RunnerRegistry.getInstance().getRunner(executor.getId(), profile);
-      assert runner != null;
-      runner.execute(new ExecutionEnvironmentBuilder(myEnvironment).setRunProfile(profile).build());
+      LOG.assertTrue(runner != null);
+      performAction(runner, profile, myEnvironment.getExecutor());
+      return;
+    }
+
+    final LinkedHashMap<Executor, ProgramRunner> availableRunners = new LinkedHashMap<Executor, ProgramRunner>();
+    final Executor[] executors = new Executor[] {DefaultRunExecutor.getRunExecutorInstance(), DefaultDebugExecutor.getDebugExecutorInstance()};
+    for (Executor ex : executors) {
+      final ProgramRunner runner = RunnerRegistry.getInstance().getRunner(ex.getId(), profile);
+      if (runner != null) {
+        availableRunners.put(ex, runner);
+      }
+    }
+
+    if (availableRunners.isEmpty()) {
+      LOG.error(executor.getActionName() + " is not available now");
+      return;
+    }
+
+    if (availableRunners.size() == 1) {
+      performAction(availableRunners.get(executor), profile, executor);
+    } else {
+      final JBList list = new JBList(availableRunners.keySet());
+      list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+      list.setSelectedValue(executor, true);
+      list.setCellRenderer(new DefaultListCellRenderer() {
+        @Override
+        public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+          final Component component = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+          if (value instanceof Executor) {
+            setText(UIUtil.removeMnemonic(((Executor)value).getStartActionText()));
+            setIcon(((Executor)value).getIcon());
+          }
+          return component;
+        }
+      });
+      JBPopupFactory.getInstance().createListPopupBuilder(list)
+        .setTitle("Restart Failed Tests")
+        .setMovable(false)
+        .setResizable(false)
+        .setRequestFocus(true)
+        .setItemChoosenCallback(new Runnable() {
+          @Override
+          public void run() {
+            final Object value = list.getSelectedValue();
+            if (value instanceof Executor) {
+              performAction(availableRunners.get(value), profile, (Executor)value);
+            }
+          }
+        }).createPopup().showUnderneathOf(event.getComponent());
+    }
+  }
+
+  private void performAction(ProgramRunner runner, MyRunProfile profile, Executor executor) {
+    try {
+      new ExecutionEnvironmentBuilder(myEnvironment)
+        .runner(runner)
+        .executor(executor)
+        .runProfile(profile)
+        .buildAndExecute();
     }
     catch (ExecutionException e1) {
       LOG.error(e1);
@@ -222,56 +294,69 @@ public class AbstractRerunFailedTestsAction extends AnAction implements AnAction
     }
 
 
+    @Override
     public void checkConfiguration() throws RuntimeConfigurationException {
     }
 
     ///////////////////////////////////Delegates
+    @Override
     public void readExternal(final Element element) throws InvalidDataException {
       myConfiguration.readExternal(element);
     }
 
+    @Override
     public void writeExternal(final Element element) throws WriteExternalException {
       myConfiguration.writeExternal(element);
     }
 
+    @Override
     @NotNull
     public SettingsEditor<? extends RunConfiguration> getConfigurationEditor() {
       return myConfiguration.getConfigurationEditor();
     }
 
+    @Override
     @NotNull
     public ConfigurationType getType() {
       return myConfiguration.getType();
     }
 
+    @Override
     public ConfigurationPerRunnerSettings createRunnerSettings(final ConfigurationInfoProvider provider) {
       return myConfiguration.createRunnerSettings(provider);
     }
 
+    @Override
     public SettingsEditor<ConfigurationPerRunnerSettings> getRunnerSettingsEditor(final ProgramRunner runner) {
       return myConfiguration.getRunnerSettingsEditor(runner);
     }
 
+    @Override
     public RunConfiguration clone() {
       return myConfiguration.clone();
     }
 
+    @Override
     public int getUniqueID() {
       return myConfiguration.getUniqueID();
     }
 
+    @Override
     public LogFileOptions getOptionsForPredefinedLogFile(PredefinedLogFile predefinedLogFile) {
       return myConfiguration.getOptionsForPredefinedLogFile(predefinedLogFile);
     }
 
+    @Override
     public ArrayList<PredefinedLogFile> getPredefinedLogFiles() {
       return myConfiguration.getPredefinedLogFiles();
     }
 
+    @Override
     public ArrayList<LogFileOptions> getAllLogFiles() {
       return myConfiguration.getAllLogFiles();
     }
 
+    @Override
     public ArrayList<LogFileOptions> getLogFiles() {
       return myConfiguration.getLogFiles();
     }

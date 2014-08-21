@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,6 @@ import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.colors.CodeInsightColors;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
@@ -38,6 +37,7 @@ import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.options.ShowSettingsUtil;
+import com.intellij.openapi.options.ex.ConfigurableWrapper;
 import com.intellij.openapi.options.newEditor.OptionsEditor;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.InputValidator;
@@ -86,7 +86,7 @@ public class SeverityEditorDialog extends DialogWrapper {
       public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
         final Component rendererComponent = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
         if (value instanceof SeverityBasedTextAttributes) {
-          setText(((SeverityBasedTextAttributes)value).getSeverity().toString());
+          setText(((SeverityBasedTextAttributes)value).getSeverity().getName());
         }
         return rendererComponent;
       }
@@ -232,7 +232,8 @@ public class SeverityEditorDialog extends DialogWrapper {
     final DataContext dataContext = DataManager.getInstance().getDataContext(myPanel);
     final OptionsEditor optionsEditor = OptionsEditor.KEY.getData(dataContext);
     if (optionsEditor != null) {
-      final ColorAndFontOptions colorAndFontOptions = optionsEditor.findConfigurable(ColorAndFontOptions.class);
+      final ColorAndFontOptions colorAndFontOptions =
+        (ColorAndFontOptions)((ConfigurableWrapper)optionsEditor.findConfigurableById(ColorAndFontOptions.ID)).getConfigurable();
       assert colorAndFontOptions != null;
       final SearchableConfigurable javaPage = colorAndFontOptions.findSubConfigurable(InspectionColorSettingsPage.class);
       LOG.assertTrue(javaPage != null);
@@ -302,6 +303,9 @@ public class SeverityEditorDialog extends DialogWrapper {
   }
 
   private void reset(SeverityBasedTextAttributes info) {
+    if (info == null) {
+      return;
+    }
     final MyTextAttributesDescription description =
       new MyTextAttributesDescription(info.getType().toString(), null, info.getAttributes(), info.getType().getAttributesKey());
     @NonNls Element textAttributes = new Element("temp");

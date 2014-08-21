@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2014 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,12 +21,11 @@ import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.FoldingModelEx;
 import com.intellij.openapi.editor.impl.EditorImpl;
-import com.intellij.openapi.editor.impl.EditorTextRepresentationHelper;
+import com.intellij.openapi.editor.impl.SoftWrapModelImpl;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapDataMapper;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapImpl;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapsStorage;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.Trinity;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -72,19 +71,16 @@ public class CachingSoftWrapDataMapper implements SoftWrapDataMapper, SoftWrapAw
   private final VisualToLogicalCalculationStrategy myVisualToLogicalStrategy;
   private final EditorEx                           myEditor;
   private final SoftWrapsStorage                   myStorage;
-  private final EditorTextRepresentationHelper     myRepresentationHelper;
   private final CacheEntry                         mySearchKey;
 
-  public CachingSoftWrapDataMapper(@NotNull EditorEx editor, @NotNull SoftWrapsStorage storage,
-                                   @NotNull EditorTextRepresentationHelper representationHelper)
+  public CachingSoftWrapDataMapper(@NotNull EditorEx editor, @NotNull SoftWrapsStorage storage)
   {
     myEditor = editor;
     myStorage = storage;
-    myRepresentationHelper = representationHelper;
-    mySearchKey = new CacheEntry(0, editor, representationHelper);
+    mySearchKey = new CacheEntry(0, editor);
 
-    myOffsetToLogicalStrategy = new OffsetToLogicalCalculationStrategy(editor, storage, myCache, representationHelper);
-    myVisualToLogicalStrategy = new VisualToLogicalCalculationStrategy(editor, storage, myCache, representationHelper);
+    myOffsetToLogicalStrategy = new OffsetToLogicalCalculationStrategy(editor, storage, myCache);
+    myVisualToLogicalStrategy = new VisualToLogicalCalculationStrategy(editor, storage, myCache);
   }
 
   @NotNull
@@ -147,7 +143,7 @@ public class CachingSoftWrapDataMapper implements SoftWrapDataMapper, SoftWrapAw
 
       // Count soft wrap column offset only if it's located at the same line as the target offset.
       if (column < 0 && softWrap.getStart() >= targetLogicalLineStartOffset) {
-        column = softWrap.getIndentInColumns() + myRepresentationHelper.toVisualColumnSymbolsNumber(
+        column = softWrap.getIndentInColumns() + SoftWrapModelImpl.getEditorTextRepresentationHelper(myEditor).toVisualColumnSymbolsNumber(
           myEditor.getDocument().getCharsSequence(), softWrap.getStart(), maxOffset, softWrap.getIndentInPixels()
         );
 
@@ -254,12 +250,12 @@ public class CachingSoftWrapDataMapper implements SoftWrapDataMapper, SoftWrapAw
   }
 
   @Override
-  public void onCollapsedFoldRegion(@NotNull FoldRegion foldRegion, int x, int visualLine) {
+  public void onCollapsedFoldRegion(@NotNull FoldRegion foldRegion, int widthInColumns, int visualLine) {
     CacheEntry cacheEntry = getCacheEntryForVisualLine(visualLine, false);
     if (cacheEntry == null) {
       return;
     }
-    cacheEntry.store(new FoldingData(foldRegion, x, myRepresentationHelper, myEditor), foldRegion.getStartOffset());
+    cacheEntry.store(new FoldingData(foldRegion, widthInColumns), foldRegion.getStartOffset());
   }
 
   @Override
@@ -327,7 +323,7 @@ public class CachingSoftWrapDataMapper implements SoftWrapDataMapper, SoftWrapAw
         return lastEntry;
       }
       else if (lastEntry.visualLine < visualLine && createIfNecessary) {
-        CacheEntry result = new CacheEntry(visualLine, myEditor, myRepresentationHelper);
+        CacheEntry result = new CacheEntry(visualLine, myEditor);
         myCache.add(result);
         return result;
       }
@@ -358,7 +354,7 @@ public class CachingSoftWrapDataMapper implements SoftWrapDataMapper, SoftWrapAw
     if (cacheEntryIndex < 0) {
       cacheEntryIndex = start;
       if (createIfNecessary) {
-        myCache.add(cacheEntryIndex, result = new CacheEntry(visualLine, myEditor, myRepresentationHelper));
+        myCache.add(cacheEntryIndex, result = new CacheEntry(visualLine, myEditor));
       }
     }
     else {
@@ -466,20 +462,11 @@ public class CachingSoftWrapDataMapper implements SoftWrapDataMapper, SoftWrapAw
           || (beforeLast.visualLine + 1 == last.visualLine && last.startOffset - beforeLast.endOffset > 1)
           || last.startOffset > myEditor.getDocument().getTextLength())
       {
-        CharSequence editorState = "";
-        if (myEditor instanceof EditorImpl) {
-          editorState = ((EditorImpl)myEditor).dumpState();
-        }
-        LOG.error(
-          "Detected invalid soft wraps cache update",
-          String.format(
-            "Event: %s, normal: %b.%n%nTail cache entries: %s%n%nAffected by change cache entries: %s%n%nBefore change state: %s%n%n"
-            + "After change state: %s%n%nEditor state: %s",
-            event, normal, myNotAffectedByUpdateTailCacheEntries, myAffectedByUpdateCacheEntries,
-            myBeforeChangeState, myAfterChangeState, editorState
-          )
-        );
+        logInvalidUpdate(event, normal);
       }
+    }
+    if (!myCache.isEmpty() && myEditor.getDocument().getTextLength() == 0) {
+      logInvalidUpdate(event, normal);
     }
     
     myAffectedByUpdateCacheEntries.clear();
@@ -491,6 +478,22 @@ public class CachingSoftWrapDataMapper implements SoftWrapDataMapper, SoftWrapAw
     }
 
     myBeforeChangeState.cacheShouldBeUpdated = false;
+  }
+
+  private void logInvalidUpdate(@NotNull IncrementalCacheUpdateEvent event, boolean normal) {
+    CharSequence editorState = "";
+    if (myEditor instanceof EditorImpl) {
+      editorState = ((EditorImpl)myEditor).dumpState();
+    }
+    LOG.error(
+      "Detected invalid soft wraps cache update",
+      String.format(
+        "Event: %s, normal: %b.%n%nTail cache entries: %s%n%nAffected by change cache entries: %s%n%nBefore change state: %s%n%n"
+        + "After change state: %s%n%nEditor state: %s",
+        event, normal, myNotAffectedByUpdateTailCacheEntries, myAffectedByUpdateCacheEntries,
+        myBeforeChangeState, myAfterChangeState, editorState
+      )
+    );
   }
 
   @Override
@@ -657,10 +660,10 @@ public class CachingSoftWrapDataMapper implements SoftWrapDataMapper, SoftWrapAw
                      int endLogicalLine,
                      int endLogicalColumn,
                      int endVisualColumn,
-                     @NotNull List<Trinity<Integer, Integer, FoldRegion>> foldRegions,
+                     @NotNull List<Pair<Integer, FoldRegion>> foldRegions,
                      @NotNull List<Pair<Integer, Integer>> tabData)
   {
-    final CacheEntry entry = new CacheEntry(visualLine, myEditor, myRepresentationHelper);
+    final CacheEntry entry = new CacheEntry(visualLine, myEditor);
     entry.startOffset = startOffset;
     entry.endOffset = endOffset;
     entry.startLogicalLine = startLogicalLine;
@@ -670,10 +673,9 @@ public class CachingSoftWrapDataMapper implements SoftWrapDataMapper, SoftWrapAw
     assert endLogicalLine == myEditor.getDocument().getLineNumber(endOffset);
     entry.endLogicalColumn = endLogicalColumn;
     entry.endVisualColumn = endVisualColumn;
-    for (Trinity<Integer, Integer, FoldRegion> region : foldRegions) {
-      final FoldingData foldData = new FoldingData(region.third, region.second, myRepresentationHelper, myEditor);
-      foldData.widthInColumns = region.first;
-      entry.store(foldData, region.third.getStartOffset());
+    for (Pair<Integer, FoldRegion> region : foldRegions) {
+      final FoldingData foldData = new FoldingData(region.second, region.first);
+      entry.store(foldData, region.second.getStartOffset());
     }
     for (Pair<Integer, Integer> pair : tabData) {
       entry.storeTabData(new TabData(pair.second, pair.first));

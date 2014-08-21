@@ -48,6 +48,7 @@ public class MethodRefHighlightingTest extends LightDaemonAnalyzerTestCase {
   public void testConstructorRefsInnerClasses() { doTest(); }
   public void testVarargs() { doTest(); }
   public void testVarargs1() { doTest(); }
+  public void testVarargs2() { doTest(); }
   public void testConstructorRefInnerFromSuper() { doTest(); }
   public void testReferenceParameters() { doTest(); }
   public void testRawQualifier() { doTest(); }
@@ -95,6 +96,17 @@ public class MethodRefHighlightingTest extends LightDaemonAnalyzerTestCase {
   }
 
   public void testUnknownQualifierClass() throws Exception {
+    doTest();
+  }
+
+  public void testQualifiersInStaticContext() throws Exception {
+    doTest();
+  }
+  public void testInvalidFunctionalTypeInReturnStmt() throws Exception {
+    doTest();
+  }
+
+  public void testIDEA127765() throws Exception {
     doTest();
   }
 

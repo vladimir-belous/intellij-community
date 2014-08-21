@@ -21,20 +21,19 @@
 package com.intellij.debugger.engine.evaluation.expression;
 
 import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.engine.DebugProcess;
 import com.intellij.debugger.engine.DebugProcessImpl;
+import com.intellij.debugger.engine.DebuggerUtils;
 import com.intellij.debugger.engine.JVMName;
-import com.intellij.debugger.engine.evaluation.EvaluateException;
-import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
-import com.intellij.debugger.engine.evaluation.EvaluateRuntimeException;
-import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
+import com.intellij.debugger.engine.evaluation.*;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
+import com.intellij.debugger.jdi.VirtualMachineProxyImpl;
 import com.intellij.openapi.diagnostic.Logger;
-import com.sun.jdi.ClassType;
-import com.sun.jdi.Method;
-import com.sun.jdi.ObjectReference;
-import com.sun.jdi.ReferenceType;
+import com.intellij.rt.debugger.DefaultMethodInvoker;
+import com.sun.jdi.*;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class MethodEvaluator implements Evaluator {
@@ -53,10 +52,12 @@ public class MethodEvaluator implements Evaluator {
     myArgumentEvaluators = argumentEvaluators;
   }
 
+  @Override
   public Modifier getModifier() {
     return null;
   }
 
+  @Override
   public Object evaluate(EvaluationContextImpl context) throws EvaluateException {
     if(!context.getDebugProcess().isAttached()) return null;
     DebugProcessImpl debugProcess = context.getDebugProcess();
@@ -83,8 +84,8 @@ public class MethodEvaluator implements Evaluator {
       ReferenceType referenceType = null;
 
       if(object instanceof ObjectReference) {
-        final ReferenceType qualifierType = ((ObjectReference)object).referenceType();
-        referenceType = debugProcess.findClass(context, qualifierType.name(), qualifierType.classLoader());
+        // it seems that if we have an object of the class, the class must be ready, so no need to use findClass here
+        referenceType = ((ObjectReference)object).referenceType();
       }
       else if(object instanceof ClassType) {
         final ClassType qualifierType = (ClassType)object;
@@ -126,14 +127,33 @@ public class MethodEvaluator implements Evaluator {
       if (requiresSuperObject && (referenceType instanceof ClassType)) {
         _refType = ((ClassType)referenceType).superclass();
       }
-      final Method jdiMethod = DebuggerUtilsEx.findMethod(_refType, myMethodName, signature);
+      Method jdiMethod = DebuggerUtils.findMethod(_refType, myMethodName, signature);
+      if (signature == null) {
+        // we know nothing about expected method's signature, so trying to match my method name and parameter count
+        // dummy matching, may be improved with types matching later
+        // IMPORTANT! using argumentTypeNames() instead of argumentTypes() to avoid type resolution inside JDI, which may be time-consuming
+        if (jdiMethod == null || jdiMethod.argumentTypeNames().size() != args.size()) {
+          for (Method method : _refType.methodsByName(myMethodName)) {
+            if (method.argumentTypeNames().size() == args.size()) {
+              jdiMethod = method;
+              break;
+            }
+          }
+        }
+      }
       if (jdiMethod == null) {
         throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.no.instance.method", methodName));
       }
       if (requiresSuperObject) {
         return debugProcess.invokeInstanceMethod(context, objRef, jdiMethod, args, ObjectReference.INVOKE_NONVIRTUAL);
       }
-      return debugProcess.invokeMethod(context, objRef, jdiMethod, args);
+      // fix for default methods in interfaces, see IDEA-124066
+      if (Boolean.valueOf(System.getProperty("debugger.invoke.default")) && jdiMethod.declaringType() instanceof InterfaceType) {
+        return invokeDefaultMethod(debugProcess, context, objRef, myMethodName);
+      }
+      else {
+        return debugProcess.invokeMethod(context, objRef, jdiMethod, args);
+      }
     }
     catch (Exception e) {
       if (LOG.isDebugEnabled()) {
@@ -141,5 +161,23 @@ public class MethodEvaluator implements Evaluator {
       }
       throw EvaluateExceptionUtil.createEvaluateException(e);
     }
+  }
+
+  // only methods without arguments for now
+  private static Value invokeDefaultMethod(DebugProcess debugProcess, EvaluationContext evaluationContext,
+                                           Value obj, String name)
+    throws EvaluateException, ClassNotLoadedException, InvalidTypeException {
+    ClassType invokerClass = (ClassType)debugProcess.findClass(
+      evaluationContext, DefaultMethodInvoker.class.getName(),
+      evaluationContext.getClassLoader());
+
+    if (invokerClass != null) {
+      List<Method> methods = invokerClass.methodsByName("invoke");
+      if (!methods.isEmpty()) {
+        return debugProcess.invokeMethod(evaluationContext, invokerClass, methods.get(0),
+               Arrays.asList(obj, ((VirtualMachineProxyImpl)debugProcess.getVirtualMachineProxy()).mirrorOf(name)));
+      }
+    }
+    return null;
   }
 }
